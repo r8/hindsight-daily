@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-hindsight-daily = "hindsight_daily:main"
+hindsight-daily = "hindsight_daily.cli:cli"
 
 [build-system]
 requires = ["uv_build>=0.11.7,<0.12.0"]
