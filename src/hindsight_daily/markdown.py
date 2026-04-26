@@ -32,7 +32,11 @@ def parse_sections(content: str) -> list[Section]:
             level = int(token.tag[1])
             inline = tokens[i + 1]
             title = inline.content if inline else ""
-            sections.append(Section(title=title, level=level))
+            if level == 2:
+                sections.append(Section(title=title, level=level))
+            else:
+                prefix = "#" * level
+                sections[-1].blocks.append(Block(type="text", content=f"{prefix} {title}"))
             i += 3  # heading_open, inline, heading_close
             continue
 
