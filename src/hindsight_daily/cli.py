@@ -16,7 +16,7 @@ def cli(ctx, verbose):
         config.set({"verbose": verbose})
     if not config["verbose"].get(bool):
         logger.remove()
-        logger.add(lambda msg: click.echo(msg, err=True), level="INFO")
+        logger.add(lambda msg: click.echo(msg.strip(), err=True), level="INFO")
     ctx.obj = config
 
 

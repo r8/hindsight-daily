@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from hashlib import sha256
@@ -35,12 +36,23 @@ def to_retain_kwargs(note: Note) -> dict[str, Any]:
     if isinstance(tags, str):
         tags = [tags]
 
+    timestamp = datetime.combine(note.date, time.min).isoformat()
+    content = json.dumps([[{
+        "role": "user",
+        "content": f"User: {note.content}",
+        "timestamp": timestamp,
+    }]])
+
     return {
-        "content": note.content,
+        "content": content,
         "timestamp": datetime.combine(note.date, time.min),
-        "context": "daily note",
+        "context": "Personal daily journal entry",
         "document_id": str(note.date),
-        "metadata": metadata,
+        "metadata": {
+            **metadata,
+            "author": "user",
+            "source": "obsidian-vault",
+        },
         "tags": tags,
         "update_mode": "replace",
     }
