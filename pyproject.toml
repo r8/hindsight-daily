@@ -15,6 +15,7 @@ dependencies = [
     "hindsight-client>=0.5.4",
     "platformdirs>=4.9.6",
     "python-frontmatter>=1.1.0",
+    "markdown-it-py>=3.0.0",
 ]
 
 [project.scripts]

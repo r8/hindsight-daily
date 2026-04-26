@@ -7,6 +7,8 @@ from typing import Any
 
 import frontmatter
 
+from .markdown import parse_sections, format_section
+
 
 @dataclass
 class Note:
@@ -36,22 +38,33 @@ def to_retain_kwargs(note: Note) -> dict[str, Any]:
     if isinstance(tags, str):
         tags = [tags]
 
-    timestamp = datetime.combine(note.date, time.min).isoformat()
-    content = json.dumps([[{
-        "role": "user",
-        "content": f"User: {note.content}",
-        "timestamp": timestamp,
-    }]])
+    timestamp = datetime.combine(note.date, time.min)
+    sections = parse_sections(note.content)
+
+    structured = [
+        {
+            "title": s.title,
+            "blocks": [
+                {"type": b.type, "content": b.content, **({"language": b.language} if b.language else {})}
+                for b in s.blocks
+            ],
+        }
+        for s in sections
+        if s.blocks
+    ]
+
+    content = json.dumps({"sections": structured}, ensure_ascii=False)
 
     return {
         "content": content,
-        "timestamp": datetime.combine(note.date, time.min),
-        "context": "Personal daily journal entry",
+        "timestamp": timestamp,
+        "context": "Daily journal entry written by the User",
         "document_id": str(note.date),
         "metadata": {
             **metadata,
             "author": "user",
-            "source": "obsidian-vault",
+            "author_type": "human",
+            "source": "daily-journal",
         },
         "tags": tags,
         "update_mode": "replace",
