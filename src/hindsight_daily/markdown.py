@@ -69,22 +69,14 @@ def parse_sections(content: str) -> list[Section]:
 
 def format_section(section: Section) -> str:
     parts = []
-    user_lines = []
-
-    def flush_user():
-        if user_lines:
-            text = "\n\n".join(user_lines)
-            parts.append(f"User (human, journal author): {text}")
-            user_lines.clear()
-
     for block in section.blocks:
         if block.type == "text":
-            user_lines.append(block.content)
+            parts.append(block.content)
         elif block.type == "code":
-            user_lines.append(f"```{block.language or ''}\n{block.content}\n```")
+            if block.language:
+                parts.append(f"<code lang=\"{block.language}\">\n{block.content}\n</code>")
+            else:
+                parts.append(f"<quote>\n{block.content}\n</quote>")
         elif block.type == "quote":
-            flush_user()
-            parts.append(f"<external_quote>\n{block.content}\n</external_quote>")
-
-    flush_user()
+            parts.append(f"<quote>\n{block.content}\n</quote>")
     return "\n\n".join(parts)

@@ -7,7 +7,7 @@ from typing import Any
 
 import frontmatter
 
-from .markdown import parse_sections, format_section
+from .markdown import format_section, parse_sections
 
 
 @dataclass
@@ -32,7 +32,7 @@ def to_retain_kwargs(note: Note) -> dict[str, Any]:
     metadata = {
         k: str(v)
         for k, v in note.frontmatter.items()
-        if k != "tags" and not isinstance(v, (list, dict))
+        if k not in ("tags", "created", "modified") and not isinstance(v, (list, dict))
     }
     tags = note.frontmatter.get("tags", [])
     if isinstance(tags, str):
@@ -42,18 +42,15 @@ def to_retain_kwargs(note: Note) -> dict[str, Any]:
     sections = parse_sections(note.content)
 
     structured = [
-        {
-            "title": s.title,
-            "blocks": [
-                {"type": b.type, "content": b.content, **({"language": b.language} if b.language else {})}
-                for b in s.blocks
-            ],
-        }
+        {"date": str(note.date), "title": s.title, "author": "user", "content": f"User: {format_section(s)}"}
         for s in sections
         if s.blocks
     ]
 
-    content = json.dumps({"sections": structured}, ensure_ascii=False)
+    content = json.dumps({
+        "narrator": "The human user who owns this journal. All first-person statements refer to the user, not any AI agent.",
+        "sections": structured,
+    }, ensure_ascii=False)
 
     return {
         "content": content,
@@ -63,7 +60,6 @@ def to_retain_kwargs(note: Note) -> dict[str, Any]:
         "metadata": {
             **metadata,
             "author": "user",
-            "author_type": "human",
             "source": "daily-journal",
         },
         "tags": tags,
