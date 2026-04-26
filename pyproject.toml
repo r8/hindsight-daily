@@ -1,0 +1,21 @@
+[project]
+name = "hindsight-daily"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Sergey Storchay", email = "r8@r8.com.ua" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.3.3",
+    "confuse>=2.2.0",
+    "hindsight-client>=0.5.4",
+]
+
+[project.scripts]
+hindsight-daily = "hindsight_daily:main"
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
