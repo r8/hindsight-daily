@@ -1,5 +1,7 @@
 import click
+from pathlib import Path
 from .config import config
+from .collector import collect
 
 
 @click.group()
@@ -12,5 +14,9 @@ def cli(ctx, verbose):
 
 
 @cli.command()
-def sync() -> None:
-    print("Sync")
+@click.pass_context
+def sync(ctx) -> None:
+    notes_path = Path(ctx.obj["daily_notes_path"].as_filename())
+    files = collect(notes_path)
+    for entry_date, file in files:
+        print(entry_date, file)
