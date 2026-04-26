@@ -11,6 +11,7 @@ dependencies = [
     "click>=8.3.3",
     "confuse>=2.2.0",
     "hindsight-client>=0.5.4",
+    "python-frontmatter>=1.1.0",
 ]
 
 [project.scripts]
