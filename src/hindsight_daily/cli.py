@@ -1,6 +1,7 @@
 import click
 from pathlib import Path
 from .config import config
+from .cache import needs_sync, mark_synced
 from .collector import collect
 from .parser import parse
 
@@ -21,4 +22,6 @@ def sync(ctx) -> None:
 
     for entry_date, file in collect(notes_path):
         note = parse(entry_date, file)
-        print(note)
+        if needs_sync(note):
+            # sync(note)
+            mark_synced(note)
