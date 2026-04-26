@@ -42,7 +42,7 @@ def to_retain_kwargs(note: Note) -> dict[str, Any]:
     sections = parse_sections(note.content)
 
     structured = [
-        {"date": str(note.date), "title": s.title, "author": "user", "content": f"User: {format_section(s)}"}
+        {"date": str(note.date), "title": s.title, "author": "user", "content": format_section(s)}
         for s in sections
         if s.blocks
     ]
