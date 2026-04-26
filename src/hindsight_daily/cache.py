@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from diskcache import Cache
 from platformdirs import user_cache_dir
 
@@ -14,3 +12,11 @@ def needs_sync(note: Note) -> bool:
 
 def mark_synced(note: Note) -> None:
     _cache.set(str(note.date), note.content_hash)
+
+
+def evict(date_str: str) -> None:
+    _cache.delete(date_str)
+
+
+def cached_dates() -> set[str]:
+    return set(_cache.iterkeys())
