@@ -1,5 +1,7 @@
 # hindsight-daily
 
+[![CI](https://github.com/r8/hindsight-daily/actions/workflows/ci.yml/badge.svg)](https://github.com/r8/hindsight-daily/actions/workflows/ci.yml)
+
 Syncs Obsidian daily notes to [Hindsight](https://hindsight.vectorize.io) so they can be recalled by AI agents.
 
 ## How it works
@@ -29,4 +31,4 @@ hindsight-daily -v sync     # with debug logging
 
 ## Content structure
 
-Each note is submitted as a JSON document with sections grouped by `##` headings. Sub-headings (`###`, `####`) are merged into their parent section. Blockquotes and unlabeled code blocks are wrapped in `<quote>` tags so Hindsight distinguishes external content from the user's own writing. Language-tagged code blocks use `<code lang="...">`.
+Each note is submitted as a JSON document. The shallowest heading level present in the note becomes the section boundary; deeper headings are merged into their parent section as text blocks. Bullet and ordered lists preserve their markers. Blockquotes and unlabeled code blocks are wrapped in `<quote>` tags so Hindsight distinguishes external content from the user's own writing. Language-tagged code blocks use `<code lang="...">`.
