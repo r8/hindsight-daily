@@ -6,9 +6,9 @@ from .parser import Note, to_retain_kwargs
 
 
 def get_client() -> _Hindsight:
-    api_key = config["api_key"].get() or None
-    api_url = config["api_url"].get() or None
-    return _Hindsight(api_key=api_key, base_url=api_url)
+    api_key: str | None = config["api_key"].get() or None
+    api_url: str | None = config["api_url"].get() or None
+    return _Hindsight(api_key=api_key, base_url=api_url)  # type: ignore[arg-type]
 
 
 def submit(client: _Hindsight, note: Note) -> None:

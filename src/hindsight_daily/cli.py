@@ -1,9 +1,11 @@
+from pathlib import Path
+
 import click
 from loguru import logger
-from pathlib import Path
-from .config import config
-from .cache import cached_dates, evict, needs_sync, mark_synced
+
+from .cache import cached_dates, evict, mark_synced, needs_sync
 from .collector import collect
+from .config import config
 from .hindsight import delete, get_client, submit
 from .parser import parse
 
@@ -11,7 +13,7 @@ from .parser import parse
 @click.group()
 @click.option("-v", "--verbose", is_flag=True, default=None)
 @click.pass_context
-def cli(ctx, verbose):
+def cli(ctx: click.Context, verbose: bool | None) -> None:
     if verbose is not None:
         config.set({"verbose": verbose})
     if not config["verbose"].get(bool):
@@ -22,7 +24,7 @@ def cli(ctx, verbose):
 
 @cli.command()
 @click.pass_context
-def sync(ctx) -> None:
+def sync(ctx: click.Context) -> None:
     notes_path = Path(ctx.obj["daily_notes_path"].as_filename())
 
     with get_client() as client:

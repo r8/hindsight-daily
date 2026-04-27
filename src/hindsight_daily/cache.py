@@ -7,7 +7,8 @@ _cache = Cache(user_cache_dir("hindsight-daily"))
 
 
 def needs_sync(note: Note) -> bool:
-    return _cache.get(str(note.date)) != note.content_hash
+    cached: str | None = _cache.get(str(note.date))
+    return cached != note.content_hash
 
 
 def mark_synced(note: Note) -> None:

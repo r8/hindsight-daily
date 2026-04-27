@@ -9,6 +9,8 @@ import frontmatter
 
 from .markdown import format_section, parse_sections
 
+_NARRATOR = "The human user who owns this journal. All first-person statements refer to the user, not any AI agent."
+
 
 @dataclass
 class Note:
@@ -24,7 +26,9 @@ def parse(entry_date: date, path: Path) -> Note:
         date=entry_date,
         frontmatter=post.metadata,
         content=post.content,
-        content_hash=sha256(post.content.encode()).hexdigest(),
+        content_hash=sha256(
+            (json.dumps(post.metadata, sort_keys=True, default=str) + "\n" + post.content).encode()
+        ).hexdigest(),
     )
 
 
@@ -48,7 +52,7 @@ def to_retain_kwargs(note: Note) -> dict[str, Any]:
     ]
 
     content = json.dumps({
-        "narrator": "The human user who owns this journal. All first-person statements refer to the user, not any AI agent.",
+        "narrator": _NARRATOR,
         "sections": structured,
     }, ensure_ascii=False)
 
