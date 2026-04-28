@@ -23,12 +23,14 @@ def cli(ctx: click.Context, verbose: bool | None) -> None:
 
 
 @cli.command()
+@click.option("--limit", type=int, default=None, help="Maximum number of notes to submit in one run.")
 @click.pass_context
-def sync(ctx: click.Context) -> None:
+def sync(ctx: click.Context, limit: int | None) -> None:
     notes_path = Path(ctx.obj["daily_notes_path"].as_filename())
 
     with get_client() as client:
         synced_dates: set[str] = set()
+        submitted = 0
         for entry_date, file in collect(notes_path):
             note = parse(entry_date, file)
             if is_empty(note):
@@ -36,9 +38,13 @@ def sync(ctx: click.Context) -> None:
                 continue
             synced_dates.add(str(note.date))
             if needs_sync(note):
+                if limit is not None and submitted >= limit:
+                    logger.debug("{} needs sync but limit reached, deferring", note.date)
+                    continue
                 submit(client, note)
                 mark_synced(note)
                 logger.info("{} synced", note.date)
+                submitted += 1
             else:
                 logger.debug("{} unchanged, skipping", note.date)
 
