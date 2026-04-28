@@ -2,12 +2,34 @@ import json
 from datetime import date, datetime, time
 from pathlib import Path
 
-from hindsight_daily.parser import parse, to_retain_kwargs
+from hindsight_daily.parser import is_empty, parse, to_retain_kwargs
 
 
 def write_note(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
+
+
+# --- is_empty() ---
+
+def test_is_empty_for_blank_note(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n")
+    assert is_empty(parse(date(2026, 1, 15), p)) is True
+
+
+def test_is_empty_for_headings_only_note(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## Morning\n\n## Evening\n")
+    assert is_empty(parse(date(2026, 1, 15), p)) is True
+
+
+def test_is_empty_false_when_note_has_content(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## Morning\n\nDrank coffee.")
+    assert is_empty(parse(date(2026, 1, 15), p)) is False
+
+
+def test_is_empty_false_for_frontmatter_only_note_with_body_text(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\ntags: [work]\n---\nSome text.")
+    assert is_empty(parse(date(2026, 1, 15), p)) is False
 
 
 # --- parse() ---

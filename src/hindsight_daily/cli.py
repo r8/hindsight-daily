@@ -7,7 +7,7 @@ from .cache import cached_dates, evict, mark_synced, needs_sync
 from .collector import collect
 from .config import config
 from .hindsight import delete, get_client, submit
-from .parser import parse
+from .parser import is_empty, parse
 
 
 @click.group()
@@ -31,6 +31,9 @@ def sync(ctx: click.Context) -> None:
         synced_dates: set[str] = set()
         for entry_date, file in collect(notes_path):
             note = parse(entry_date, file)
+            if is_empty(note):
+                logger.debug("{} has no content sections, skipping", note.date)
+                continue
             synced_dates.add(str(note.date))
             if needs_sync(note):
                 submit(client, note)

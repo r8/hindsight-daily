@@ -32,6 +32,10 @@ def parse(entry_date: date, path: Path) -> Note:
     )
 
 
+def is_empty(note: Note) -> bool:
+    return not any(s.blocks for s in parse_sections(note.content))
+
+
 def to_retain_kwargs(note: Note) -> dict[str, Any]:
     metadata = {
         k: str(v)
