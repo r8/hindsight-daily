@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from pathlib import Path
 
 import click
@@ -7,7 +8,16 @@ from .cache import cached_dates, evict, mark_synced, needs_sync
 from .collector import collect
 from .config import config
 from .hindsight import delete, get_client, submit
-from .parser import is_empty, parse
+from .parser import Note, is_empty, parse
+
+
+def _iter_notes(notes_path: Path) -> Iterator[Note]:
+    for entry_date, file in collect(notes_path):
+        note = parse(entry_date, file)
+        if is_empty(note):
+            logger.debug("{} has no content sections, skipping", note.date)
+        else:
+            yield note
 
 
 @click.group()
@@ -31,11 +41,7 @@ def sync(ctx: click.Context, limit: int | None) -> None:
     with get_client() as client:
         synced_dates: set[str] = set()
         submitted = 0
-        for entry_date, file in collect(notes_path):
-            note = parse(entry_date, file)
-            if is_empty(note):
-                logger.debug("{} has no content sections, skipping", note.date)
-                continue
+        for note in _iter_notes(notes_path):
             synced_dates.add(str(note.date))
             if needs_sync(note):
                 if limit is not None and submitted >= limit:
@@ -52,3 +58,37 @@ def sync(ctx: click.Context, limit: int | None) -> None:
             delete(client, date_str)
             evict(date_str)
             logger.info("{} deleted (note removed from vault)", date_str)
+
+
+@cli.command()
+@click.pass_context
+def status(ctx: click.Context) -> None:
+    notes_path = Path(ctx.obj["daily_notes_path"].as_filename())
+    verbose = ctx.obj["verbose"].get(bool)
+
+    vault_dates: set[str] = set()
+    pending: list[str] = []
+    up_to_date: list[str] = []
+
+    for note in _iter_notes(notes_path):
+        vault_dates.add(str(note.date))
+        if needs_sync(note):
+            pending.append(str(note.date))
+        else:
+            up_to_date.append(str(note.date))
+
+    stale = sorted(cached_dates() - vault_dates)
+
+    click.echo(f"up to date  {len(up_to_date):>4}")
+    if verbose:
+        for d in up_to_date:
+            click.echo(f"  {d}")
+    click.echo(f"needs sync  {len(pending):>4}")
+    if verbose:
+        for d in pending:
+            click.echo(f"  {d}")
+    if stale:
+        click.echo(f"stale       {len(stale):>4}  (will be deleted on next sync)")
+        if verbose:
+            for d in stale:
+                click.echo(f"  {d}")
