@@ -25,8 +25,11 @@ verbose: false
 ## Usage
 
 ```bash
-hindsight-daily sync        # sync new and changed notes
-hindsight-daily -v sync     # with debug logging
+hindsight-daily sync           # sync new and changed notes
+hindsight-daily sync --limit 5 # sync at most 5 notes
+hindsight-daily status         # show pending/up-to-date counts
+hindsight-daily -v status      # show individual note dates
+hindsight-daily -v sync        # sync with debug logging
 ```
 
 ## Content structure
