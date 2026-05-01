@@ -161,14 +161,15 @@ def test_content_sections_match_headings(tmp_path):
     p = write_note(tmp_path / "note.md", "---\n---\n## Morning\n\nDrank coffee.\n\n## Evening\n\nRead a book.")
     note = parse(date(2026, 1, 15), p)
     parsed = json.loads(to_retain_kwargs(note)["content"])
-    titles = [s["title"] for s in parsed["sections"]]
-    assert titles == ["Morning", "Evening"]
+    contents = [s["content"] for s in parsed["sections"]]
+    assert any(c.startswith("Topic: Morning") for c in contents)
+    assert any(c.startswith("Topic: Evening") for c in contents)
 
 
 def test_sections_without_content_are_excluded(tmp_path):
     p = write_note(tmp_path / "note.md", "---\n---\n## Empty\n\n## Has content\n\nText here.")
     note = parse(date(2026, 1, 15), p)
     parsed = json.loads(to_retain_kwargs(note)["content"])
-    titles = [s["title"] for s in parsed["sections"]]
-    assert "Has content" in titles
-    assert "Empty" not in titles
+    contents = [s["content"] for s in parsed["sections"]]
+    assert any("Has content" in c for c in contents)
+    assert not any("Empty" in c for c in contents)

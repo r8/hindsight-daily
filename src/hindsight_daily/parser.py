@@ -7,7 +7,7 @@ from typing import Any
 
 import frontmatter
 
-from .markdown import format_section, parse_sections
+from .markdown import Section, format_section, parse_sections
 
 _NARRATOR = "The human user who owns this journal. All first-person statements refer to the user, not any AI agent."
 
@@ -36,6 +36,11 @@ def is_empty(note: Note) -> bool:
     return not any(s.blocks for s in parse_sections(note.content))
 
 
+def _format_section_content(s: Section) -> str:
+    body = format_section(s)
+    return f"Topic: {s.title}\n\n{body}" if s.title else body
+
+
 def to_retain_kwargs(note: Note) -> dict[str, Any]:
     metadata = {
         k: str(v)
@@ -50,7 +55,7 @@ def to_retain_kwargs(note: Note) -> dict[str, Any]:
     sections = parse_sections(note.content)
 
     structured = [
-        {"date": str(note.date), "title": s.title, "author": "user", "content": format_section(s)}
+        {"date": str(note.date), "author": "user", "content": _format_section_content(s)}
         for s in sections
         if s.blocks
     ]
