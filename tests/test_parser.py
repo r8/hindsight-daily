@@ -96,8 +96,8 @@ def test_returns_one_item_per_section_with_blocks(tmp_path):
 def test_document_ids_are_namespaced_and_indexed(tmp_path):
     p = write_note(tmp_path / "note.md", "---\n---\n## Morning\n\nDrank coffee.\n\n## Evening\n\nRead a book.")
     items = to_retain_items(parse(date(2026, 1, 15), p))
-    assert items[0]["document_id"] == "journal:2026-01-15_000"
-    assert items[1]["document_id"] == "journal:2026-01-15_001"
+    assert items[0]["document_id"] == "journal:2026-01-15_001"
+    assert items[1]["document_id"] == "journal:2026-01-15_002"
 
 
 def test_timestamp_is_midnight_of_date(tmp_path):

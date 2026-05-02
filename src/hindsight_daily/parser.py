@@ -66,7 +66,7 @@ def to_retain_items(note: Note) -> list[dict[str, Any]]:
     shared_metadata = {**metadata, "author": "user", "source": "daily-journal"}
 
     items = []
-    for idx, s in enumerate(s for s in parse_sections(note.content) if s.blocks):
+    for idx, s in enumerate((s for s in parse_sections(note.content) if s.blocks), start=1):
         title_entities = _extract_canonical_names(s.title) if s.title else []
         context = (
             f"Daily journal entry by user. Topic: {', '.join(title_entities)}"
