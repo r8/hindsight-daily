@@ -2,7 +2,7 @@ import json
 from datetime import date, datetime, time
 from pathlib import Path
 
-from hindsight_daily.parser import is_empty, parse, to_retain_kwargs
+from hindsight_daily.parser import is_empty, parse, to_retain_items
 
 
 def write_note(path: Path, body: str) -> Path:
@@ -75,101 +75,145 @@ def test_content_hash_changes_when_only_frontmatter_changes(tmp_path):
     assert h1 != h2
 
 
-# --- to_retain_kwargs() ---
+# --- to_retain_items() ---
+
+def _note_with_content(tmp_path, frontmatter="---\n---\n", body="## Work\n\nDid stuff."):
+    p = write_note(tmp_path / "note.md", frontmatter + body)
+    return parse(date(2026, 1, 15), p)
+
+
+def test_empty_note_returns_empty_list(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n")
+    assert to_retain_items(parse(date(2026, 1, 15), p)) == []
+
+
+def test_returns_one_item_per_section_with_blocks(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## Morning\n\nDrank coffee.\n\n## Evening\n\nRead a book.")
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    assert len(items) == 2
+
+
+def test_document_ids_are_namespaced_and_indexed(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## Morning\n\nDrank coffee.\n\n## Evening\n\nRead a book.")
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    assert items[0]["document_id"] == "journal:2026-01-15_000"
+    assert items[1]["document_id"] == "journal:2026-01-15_001"
+
 
 def test_timestamp_is_midnight_of_date(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    assert to_retain_kwargs(note)["timestamp"] == datetime.combine(date(2026, 1, 15), time.min)
-
-
-def test_document_id_is_date_string(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    assert to_retain_kwargs(note)["document_id"] == "2026-01-15"
+    items = to_retain_items(_note_with_content(tmp_path))
+    assert items[0]["timestamp"] == datetime.combine(date(2026, 1, 15), time.min)
 
 
 def test_update_mode_is_replace(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    assert to_retain_kwargs(note)["update_mode"] == "replace"
+    items = to_retain_items(_note_with_content(tmp_path))
+    assert items[0]["update_mode"] == "replace"
 
 
 def test_tags_list_passthrough(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\ntags: [work, personal]\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    assert to_retain_kwargs(note)["tags"] == ["work", "personal"]
+    items = to_retain_items(_note_with_content(tmp_path, frontmatter="---\ntags: [work, personal]\n---\n"))
+    assert items[0]["tags"] == ["work", "personal"]
 
 
 def test_tags_string_wrapped_in_list(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\ntags: work\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    assert to_retain_kwargs(note)["tags"] == ["work"]
+    items = to_retain_items(_note_with_content(tmp_path, frontmatter="---\ntags: work\n---\n"))
+    assert items[0]["tags"] == ["work"]
 
 
 def test_tags_absent_defaults_to_empty_list(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    assert to_retain_kwargs(note)["tags"] == []
+    items = to_retain_items(_note_with_content(tmp_path))
+    assert items[0]["tags"] == []
 
 
 def test_scalar_frontmatter_goes_to_metadata(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\nmood: happy\nrating: 8\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    metadata = to_retain_kwargs(note)["metadata"]
+    items = to_retain_items(_note_with_content(tmp_path, frontmatter="---\nmood: happy\nrating: 8\n---\n"))
+    metadata = items[0]["metadata"]
     assert metadata["mood"] == "happy"
     assert metadata["rating"] == "8"
 
 
 def test_reserved_keys_excluded_from_metadata(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\ntags: [x]\ncreated: 2026-01-15\nmodified: 2026-01-15\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    metadata = to_retain_kwargs(note)["metadata"]
+    items = to_retain_items(_note_with_content(
+        tmp_path, frontmatter="---\ntags: [x]\ncreated: 2026-01-15\nmodified: 2026-01-15\n---\n"
+    ))
     for key in ("tags", "created", "modified"):
-        assert key not in metadata
+        assert key not in items[0]["metadata"]
 
 
 def test_list_values_excluded_from_metadata(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\nitems: [a, b]\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    assert "items" not in to_retain_kwargs(note)["metadata"]
+    items = to_retain_items(_note_with_content(tmp_path, frontmatter="---\nitems: [a, b]\n---\n"))
+    assert "items" not in items[0]["metadata"]
 
 
 def test_dict_values_excluded_from_metadata(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\nnested:\n  key: val\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    assert "nested" not in to_retain_kwargs(note)["metadata"]
+    items = to_retain_items(_note_with_content(tmp_path, frontmatter="---\nnested:\n  key: val\n---\n"))
+    assert "nested" not in items[0]["metadata"]
 
 
 def test_metadata_always_includes_author_and_source(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\n---\n")
-    note = parse(date(2026, 1, 15), p)
-    metadata = to_retain_kwargs(note)["metadata"]
-    assert metadata["author"] == "user"
-    assert metadata["source"] == "daily-journal"
+    items = to_retain_items(_note_with_content(tmp_path))
+    assert items[0]["metadata"]["author"] == "user"
+    assert items[0]["metadata"]["source"] == "daily-journal"
 
 
 def test_content_field_is_valid_json(tmp_path):
-    p = write_note(tmp_path / "note.md", "---\n---\n## Work\n\nDid stuff.")
-    note = parse(date(2026, 1, 15), p)
-    parsed = json.loads(to_retain_kwargs(note)["content"])
+    items = to_retain_items(_note_with_content(tmp_path))
+    parsed = json.loads(items[0]["content"])
     assert "sections" in parsed
     assert "narrator" in parsed
 
 
-def test_content_sections_match_headings(tmp_path):
+def test_each_item_contains_only_its_own_section(tmp_path):
     p = write_note(tmp_path / "note.md", "---\n---\n## Morning\n\nDrank coffee.\n\n## Evening\n\nRead a book.")
-    note = parse(date(2026, 1, 15), p)
-    parsed = json.loads(to_retain_kwargs(note)["content"])
-    contents = [s["content"] for s in parsed["sections"]]
-    assert any(c.startswith("Topic: Morning") for c in contents)
-    assert any(c.startswith("Topic: Evening") for c in contents)
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    assert json.loads(items[0]["content"])["sections"][0]["content"].startswith("## Morning")
+    assert json.loads(items[1]["content"])["sections"][0]["content"].startswith("## Evening")
+    assert len(json.loads(items[0]["content"])["sections"]) == 1
+    assert len(json.loads(items[1]["content"])["sections"]) == 1
 
 
 def test_sections_without_content_are_excluded(tmp_path):
     p = write_note(tmp_path / "note.md", "---\n---\n## Empty\n\n## Has content\n\nText here.")
-    note = parse(date(2026, 1, 15), p)
-    parsed = json.loads(to_retain_kwargs(note)["content"])
-    contents = [s["content"] for s in parsed["sections"]]
-    assert any("Has content" in c for c in contents)
-    assert not any("Empty" in c for c in contents)
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    assert len(items) == 1
+    assert "Has content" in json.loads(items[0]["content"])["sections"][0]["content"]
+
+
+def test_entities_from_wikilinked_titles(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## [[УЦБ]]: notes\n\nBody text.")
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    assert items[0]["entities"] == [{"text": "УЦБ"}]
+    assert "УЦБ" in items[0]["context"]
+
+
+def test_entities_aliased_wikilink_uses_canonical_name(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## [[УЦБ | Центр]]\n\nBody.")
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    assert items[0]["entities"] == [{"text": "УЦБ"}]
+
+
+def test_entities_empty_for_plain_titles(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## Morning\n\nDrank coffee.")
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    assert items[0]["entities"] == []
+    assert items[0]["context"] == "Daily journal entry written by the User"
+
+
+def test_entities_scoped_per_section(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## [[A]]\n\nText.\n\n## [[B]]\n\nMore.")
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    assert items[0]["entities"] == [{"text": "A"}]
+    assert items[1]["entities"] == [{"text": "B"}]
+
+
+def test_wikilinks_in_body_not_added_to_entities(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## Plain title\n\n[[BodyEntity]] mentioned here.")
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    assert items[0]["entities"] == []
+
+
+def test_section_content_has_markdown_h2_prefix(tmp_path):
+    p = write_note(tmp_path / "note.md", "---\n---\n## [[Proj]]\n\nDid work.")
+    items = to_retain_items(parse(date(2026, 1, 15), p))
+    parsed = json.loads(items[0]["content"])
+    assert parsed["sections"][0]["content"].startswith("## [[Proj]]")
