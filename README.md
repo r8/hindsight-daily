@@ -1,6 +1,7 @@
 # hindsight-daily
 
 [![CI](https://github.com/r8/hindsight-daily/actions/workflows/ci.yml/badge.svg)](https://github.com/r8/hindsight-daily/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/hindsight-daily.svg)](https://pypi.org/project/hindsight-daily/)
 
 Syncs Obsidian daily notes to [Hindsight](https://hindsight.vectorize.io) so they can be recalled by AI agents.
 
@@ -9,6 +10,18 @@ Syncs Obsidian daily notes to [Hindsight](https://hindsight.vectorize.io) so the
 Walks a configured vault directory, finds notes named `YYYY-MM-DD.md`, parses them into structured sections, and submits new or changed notes to Hindsight via its API. Unchanged notes are skipped. Deleted notes are removed from Hindsight.
 
 Change detection uses a content hash (not mtime) because Obsidian plugins frequently touch mtime without changing content.
+
+## Installation
+
+```bash
+uv tool install hindsight-daily
+```
+
+or with pip:
+
+```bash
+pip install hindsight-daily
+```
 
 ## Config
 
