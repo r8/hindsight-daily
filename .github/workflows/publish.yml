@@ -1,12 +1,8 @@
 name: Publish
 
-# Disabled until first manual publish to PyPI.
-# To enable: replace the trigger below with:
-#   on:
-#     release:
-#       types: [published]
 on:
-  workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   publish:
