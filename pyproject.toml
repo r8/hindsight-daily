@@ -17,6 +17,16 @@ dependencies = [
     "python-frontmatter>=1.1.0",
     "markdown-it-py>=3.0.0",
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/r8/hindsight-daily"
+Issues = "https://github.com/r8/hindsight-daily/issues"
 
 [project.scripts]
 hindsight-daily = "hindsight_daily.cli:cli"
