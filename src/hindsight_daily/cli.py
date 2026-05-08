@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from datetime import date as _date
 from pathlib import Path
+from typing import Any
 
 import click
 from loguru import logger
@@ -15,7 +16,7 @@ from .parser import Note, is_empty, parse
 class IsoDate(click.ParamType):
     name = "date"
 
-    def convert(self, value, param, ctx):
+    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> _date:
         if isinstance(value, _date):
             return value
         try:
