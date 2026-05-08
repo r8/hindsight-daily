@@ -36,7 +36,7 @@ def _base_patches(tmp_path, notes, *, needs_sync_val=True, cached=None, verbose=
     ]
 
 
-def run_sync(tmp_path, notes, *, limit=None, needs_sync_val=True, cached=None):
+def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True, cached=None):
     """Invoke sync with all external dependencies mocked."""
     submitted: list[date] = []
     deleted: list[str] = []
@@ -50,6 +50,8 @@ def run_sync(tmp_path, notes, *, limit=None, needs_sync_val=True, cached=None):
         args = ["sync"]
         if limit is not None:
             args += ["--limit", str(limit)]
+        if date_arg is not None:
+            args += ["--date", date_arg]
         result = CliRunner().invoke(cli, args)
 
     return result, submitted, deleted
@@ -121,6 +123,44 @@ def test_removed_notes_still_deleted(tmp_path):
     cached = ["2026-01-01", "2026-01-15"]
     _, _, deleted = run_sync(tmp_path, notes, cached=cached)
     assert "2026-01-15" in deleted
+
+
+# --- sync: --date ---
+
+def test_sync_date_submits_only_target(tmp_path):
+    notes = [make_note(date(2026, 1, d)) for d in range(1, 4)]
+    result, submitted, _ = run_sync(tmp_path, notes, date_arg="2026-01-02")
+    assert result.exit_code == 0
+    assert submitted == [date(2026, 1, 2)]
+
+
+def test_sync_date_unchanged_skips(tmp_path):
+    notes = [make_note(date(2026, 1, 2))]
+    result, submitted, _ = run_sync(tmp_path, notes, date_arg="2026-01-02", needs_sync_val=False)
+    assert result.exit_code == 0
+    assert submitted == []
+
+
+def test_sync_date_invalid_format(tmp_path):
+    notes = [make_note(date(2026, 1, 1))]
+    result, submitted, deleted = run_sync(tmp_path, notes, date_arg="not-a-date")
+    assert result.exit_code != 0
+    assert submitted == []
+    assert deleted == []
+
+
+def test_sync_date_not_in_vault(tmp_path):
+    notes = [make_note(date(2026, 1, 1))]
+    result, submitted, _ = run_sync(tmp_path, notes, date_arg="2026-01-15")
+    assert result.exit_code != 0
+    assert submitted == []
+
+
+def test_sync_date_skips_deletion_phase(tmp_path):
+    notes = [make_note(date(2026, 1, 2))]
+    cached = ["2026-01-02", "2026-01-99-stale"]
+    _, _, deleted = run_sync(tmp_path, notes, date_arg="2026-01-02", cached=cached)
+    assert deleted == []
 
 
 # --- status ---

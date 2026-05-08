@@ -12,6 +12,18 @@ from .hindsight import delete, get_client, submit
 from .parser import Note, is_empty, parse
 
 
+class IsoDate(click.ParamType):
+    name = "date"
+
+    def convert(self, value, param, ctx):
+        if isinstance(value, _date):
+            return value
+        try:
+            return _date.fromisoformat(value)
+        except ValueError:
+            self.fail(f"expected YYYY-MM-DD, got {value!r}", param, ctx)
+
+
 def _iter_notes(notes_path: Path) -> Iterator[Note]:
     for entry_date, file in collect(notes_path):
         note = parse(entry_date, file)
@@ -35,12 +47,30 @@ def cli(ctx: click.Context, verbose: bool | None) -> None:
 
 @cli.command()
 @click.option("--limit", type=int, default=None, help="Maximum number of notes to submit in one run.")
+@click.option("--date", "target", type=IsoDate(), metavar="DATE", default=None,
+              help="Sync only the note for DATE (YYYY-MM-DD); skips the deletion phase.")
 @click.pass_context
-def sync(ctx: click.Context, limit: int | None) -> None:
+def sync(ctx: click.Context, limit: int | None, target: _date | None) -> None:
     """Submit new and changed notes to Hindsight, remove notes deleted from the vault."""
     notes_path = Path(ctx.obj["daily_notes_path"].as_filename())
 
     with get_client() as client:
+        if target is not None:
+            for entry_date, file in collect(notes_path):
+                if entry_date != target:
+                    continue
+                note = parse(entry_date, file)
+                if is_empty(note):
+                    logger.info("{} has no content sections, skipping", note.date)
+                elif needs_sync(note):
+                    submit(client, note)
+                    mark_synced(note)
+                    logger.info("{} synced", note.date)
+                else:
+                    logger.info("{} unchanged, skipping", note.date)
+                return
+            raise click.ClickException(f"no note found for {target}")
+
         synced_dates: set[str] = set()
         submitted = 0
         for note in _iter_notes(notes_path):
@@ -56,22 +86,17 @@ def sync(ctx: click.Context, limit: int | None) -> None:
             else:
                 logger.debug("{} unchanged, skipping", note.date)
 
-        for date_str in cached_dates() - synced_dates:
-            delete(client, date_str)
-            evict(date_str)
-            logger.info("{} deleted (note removed from vault)", date_str)
+        for stale in cached_dates() - synced_dates:
+            delete(client, stale)
+            evict(stale)
+            logger.info("{} deleted (note removed from vault)", stale)
 
 
 @cli.command()
-@click.argument("date_str", metavar="DATE")
+@click.argument("target", metavar="DATE", type=IsoDate())
 @click.pass_context
-def forget(ctx: click.Context, date_str: str) -> None:
+def forget(ctx: click.Context, target: _date) -> None:
     """Remove a note for DATE (YYYY-MM-DD) from the Hindsight server and local cache."""
-    try:
-        target = _date.fromisoformat(date_str)
-    except ValueError as e:
-        raise click.BadParameter(f"expected YYYY-MM-DD, got {date_str!r}") from e
-
     notes_path = Path(ctx.obj["daily_notes_path"].as_filename())
     if any(d == target for d, _ in collect(notes_path)):
         logger.warning("{} still exists in vault; next `sync` will recreate it", target)
