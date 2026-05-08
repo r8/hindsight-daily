@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import date as _date
 from pathlib import Path
 
 import click
@@ -36,6 +37,7 @@ def cli(ctx: click.Context, verbose: bool | None) -> None:
 @click.option("--limit", type=int, default=None, help="Maximum number of notes to submit in one run.")
 @click.pass_context
 def sync(ctx: click.Context, limit: int | None) -> None:
+    """Submit new and changed notes to Hindsight, remove notes deleted from the vault."""
     notes_path = Path(ctx.obj["daily_notes_path"].as_filename())
 
     with get_client() as client:
@@ -61,8 +63,29 @@ def sync(ctx: click.Context, limit: int | None) -> None:
 
 
 @cli.command()
+@click.argument("date_str", metavar="DATE")
+@click.pass_context
+def forget(ctx: click.Context, date_str: str) -> None:
+    """Remove a note for DATE (YYYY-MM-DD) from the Hindsight server and local cache."""
+    try:
+        target = _date.fromisoformat(date_str)
+    except ValueError as e:
+        raise click.BadParameter(f"expected YYYY-MM-DD, got {date_str!r}") from e
+
+    notes_path = Path(ctx.obj["daily_notes_path"].as_filename())
+    if any(d == target for d, _ in collect(notes_path)):
+        logger.warning("{} still exists in vault; next `sync` will recreate it", target)
+
+    with get_client() as client:
+        delete(client, str(target))
+        evict(str(target))
+    logger.info("{} forgotten", target)
+
+
+@cli.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
+    """Show counts of up-to-date, pending, and stale notes."""
     notes_path = Path(ctx.obj["daily_notes_path"].as_filename())
     verbose = ctx.obj["verbose"].get(bool)
 

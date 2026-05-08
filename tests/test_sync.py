@@ -170,6 +170,65 @@ def test_status_non_verbose_no_individual_dates(tmp_path):
     assert "2026-01-01" not in result.output
 
 
+def run_forget(tmp_path, date_arg, *, vault_dates=()):
+    """Invoke forget with all external dependencies mocked."""
+    deleted: list[str] = []
+    evicted: list[str] = []
+
+    mock_config = MagicMock()
+    mock_config["daily_notes_path"].as_filename.return_value = str(tmp_path)
+    mock_config["verbose"].get.return_value = False
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+
+    with ExitStack() as stack:
+        stack.enter_context(patch("hindsight_daily.cli.config", mock_config))
+        stack.enter_context(patch("hindsight_daily.cli.get_client", return_value=mock_client))
+        stack.enter_context(patch(
+            "hindsight_daily.cli.collect",
+            return_value=[(d, Path(tmp_path)) for d in vault_dates],
+        ))
+        stack.enter_context(patch("hindsight_daily.cli.delete", side_effect=lambda _, d: deleted.append(d)))
+        stack.enter_context(patch("hindsight_daily.cli.evict", side_effect=lambda d: evicted.append(d)))
+        result = CliRunner().invoke(cli, ["forget", date_arg])
+
+    return result, deleted, evicted
+
+
+# --- forget ---
+
+def test_forget_happy_path(tmp_path):
+    result, deleted, evicted = run_forget(tmp_path, "2026-01-15")
+    assert result.exit_code == 0
+    assert deleted == ["2026-01-15"]
+    assert evicted == ["2026-01-15"]
+
+
+def test_forget_invalid_date(tmp_path):
+    result, deleted, evicted = run_forget(tmp_path, "not-a-date")
+    assert result.exit_code != 0
+    assert deleted == []
+    assert evicted == []
+
+
+def test_forget_warns_when_note_in_vault(tmp_path):
+    target = date(2026, 1, 15)
+    result, deleted, evicted = run_forget(tmp_path, "2026-01-15", vault_dates=[target])
+    assert result.exit_code == 0
+    assert deleted == ["2026-01-15"]
+    assert evicted == ["2026-01-15"]
+    assert "still exists in vault" in result.output
+
+
+def test_forget_no_warning_when_note_not_in_vault(tmp_path):
+    other = date(2026, 1, 1)
+    result, _, _ = run_forget(tmp_path, "2026-01-15", vault_dates=[other])
+    assert result.exit_code == 0
+    assert "still exists in vault" not in result.output
+
+
 def test_status_mixed(tmp_path):
     notes = [make_note(date(2026, 1, d)) for d in range(1, 5)]
 

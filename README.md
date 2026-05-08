@@ -40,6 +40,7 @@ verbose: false
 ```bash
 hindsight-daily sync           # sync new and changed notes
 hindsight-daily sync --limit 5 # sync at most 5 notes
+hindsight-daily forget DATE    # remove a note from server and cache
 hindsight-daily status         # show pending/up-to-date counts
 hindsight-daily -v status      # show individual note dates
 hindsight-daily -v sync        # sync with debug logging
