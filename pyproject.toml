@@ -1,6 +1,6 @@
 [project]
 name = "hindsight-daily"
-version = "0.1.0"
+version = "0.2.0"
 description = "Syncs Obsidian daily notes to Hindsight so they can be recalled by AI agents."
 readme = "README.md"
 authors = [

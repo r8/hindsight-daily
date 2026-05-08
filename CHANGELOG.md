@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-08
+
 ### Added
 
 - Add `forget` command to remove the note from server and cache 
