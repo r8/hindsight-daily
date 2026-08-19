@@ -10,6 +10,11 @@
 - Report sync failures as a single error message and a non-zero exit code instead of a traceback,
   and keep syncing the remaining notes
 
+### Fixed
+
+- Page through the document listing when cleaning up a date, so sections removed from a long note
+  are no longer left behind on the server
+
 ## [0.2.0] - 2026-05-08
 
 ### Added

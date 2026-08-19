@@ -9,6 +9,7 @@ from .config import config
 from .parser import Note, to_retain_items
 
 _MAX_POLL_INTERVAL = 15.0
+_DOC_PAGE_SIZE = 100
 
 
 class HindsightSubmitError(Exception):
@@ -22,11 +23,20 @@ def get_client() -> _Hindsight:
 
 
 def _list_section_doc_ids(client: _Hindsight, bank_id: str, date_str: str) -> list[str]:
+    """Every document id for a date, paging until the server runs out of them."""
     prefix = f"journal:{date_str}_"
-    result = _run_async(
-        client.documents.list_documents(bank_id=bank_id, q=f"journal:{date_str}")
-    )
-    return [d["id"] for d in result.items if d["id"].startswith(prefix)]
+    ids: list[str] = []
+    offset = 0
+    while True:
+        result = _run_async(client.documents.list_documents(
+            bank_id=bank_id, q=f"journal:{date_str}", limit=_DOC_PAGE_SIZE, offset=offset,
+        ))
+        ids.extend(d["id"] for d in result.items if d["id"].startswith(prefix))
+        # Advance by what came back, not by the page size the server may have clamped.
+        offset += len(result.items)
+        if not result.items or offset >= result.total:
+            break
+    return list(dict.fromkeys(ids))
 
 
 def _operation_ids(response: Any) -> list[str]:
