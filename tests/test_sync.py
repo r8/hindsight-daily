@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from hindsight_daily.cli import cli
+from hindsight_daily.hindsight import HindsightSubmitError
 from hindsight_daily.parser import Note
 
 
@@ -36,15 +37,20 @@ def _base_patches(tmp_path, notes, *, needs_sync_val=True, cached=None, verbose=
     ]
 
 
-def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True, cached=None):
+def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True, cached=None, failing_dates=()):
     """Invoke sync with all external dependencies mocked."""
     submitted: list[date] = []
     deleted: list[str] = []
 
+    def fake_submit(_, note):
+        if note.date in failing_dates:
+            raise HindsightSubmitError(f"{note.date}: still being ingested")
+        submitted.append(note.date)
+
     with ExitStack() as stack:
         for p in _base_patches(tmp_path, notes, needs_sync_val=needs_sync_val, cached=cached):
             stack.enter_context(p)
-        stack.enter_context(patch("hindsight_daily.cli.submit", side_effect=lambda _, n: submitted.append(n.date)))
+        stack.enter_context(patch("hindsight_daily.cli.submit", side_effect=fake_submit))
         stack.enter_context(patch("hindsight_daily.cli.delete", side_effect=lambda _, d: deleted.append(d)))
 
         args = ["sync"]
@@ -123,6 +129,43 @@ def test_removed_notes_still_deleted(tmp_path):
     cached = ["2026-01-01", "2026-01-15"]
     _, _, deleted = run_sync(tmp_path, notes, cached=cached)
     assert "2026-01-15" in deleted
+
+
+# --- sync: submit failures ---
+
+def test_failed_note_does_not_stop_the_run(tmp_path):
+    notes = [make_note(date(2026, 1, d)) for d in range(1, 4)]
+    result, submitted, _ = run_sync(tmp_path, notes, failing_dates=[date(2026, 1, 2)])
+    assert result.exit_code != 0
+    assert submitted == [date(2026, 1, 1), date(2026, 1, 3)]
+    assert "1 note(s) failed to sync" in result.output
+    assert "still being ingested" in result.output
+
+
+def test_failed_note_not_marked_synced(tmp_path):
+    notes = [make_note(date(2026, 1, 1))]
+    marked: list[date] = []
+    with patch("hindsight_daily.cli.mark_synced", side_effect=marked.append):
+        run_sync(tmp_path, notes, failing_dates=[date(2026, 1, 1)])
+    assert marked == []
+
+
+def test_failed_note_is_not_deleted_from_server(tmp_path):
+    """A note that failed to submit is still in the vault, so it must not be treated as stale."""
+    notes = [make_note(date(2026, 1, 1))]
+    _, _, deleted = run_sync(tmp_path, notes, cached=["2026-01-01"], failing_dates=[date(2026, 1, 1)])
+    assert deleted == []
+
+
+def test_sync_date_failure_reports_cleanly(tmp_path):
+    notes = [make_note(date(2026, 1, 2))]
+    result, submitted, _ = run_sync(
+        tmp_path, notes, date_arg="2026-01-02", failing_dates=[date(2026, 1, 2)],
+    )
+    assert result.exit_code != 0
+    assert submitted == []
+    assert "still being ingested" in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
 # --- sync: --date ---

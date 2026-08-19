@@ -9,7 +9,7 @@ from loguru import logger
 from .cache import cached_dates, evict, mark_synced, needs_sync
 from .collector import collect
 from .config import config
-from .hindsight import delete, get_client, submit
+from .hindsight import HindsightSubmitError, delete, get_client, submit
 from .parser import Note, is_empty, parse
 
 
@@ -64,7 +64,10 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None) -> None:
                 if is_empty(note):
                     logger.info("{} has no content sections, skipping", note.date)
                 elif needs_sync(note):
-                    submit(client, note)
+                    try:
+                        submit(client, note)
+                    except HindsightSubmitError as exc:
+                        raise click.ClickException(str(exc)) from exc
                     mark_synced(note)
                     logger.info("{} synced", note.date)
                 else:
@@ -74,13 +77,19 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None) -> None:
 
         synced_dates: set[str] = set()
         submitted = 0
+        failed = 0
         for note in _iter_notes(notes_path):
             synced_dates.add(str(note.date))
             if needs_sync(note):
                 if limit is not None and submitted >= limit:
                     logger.debug("{} needs sync but limit reached, deferring", note.date)
                     continue
-                submit(client, note)
+                try:
+                    submit(client, note)
+                except HindsightSubmitError as exc:
+                    logger.error("{}", exc)
+                    failed += 1
+                    continue
                 mark_synced(note)
                 logger.info("{} synced", note.date)
                 submitted += 1
@@ -91,6 +100,9 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None) -> None:
             delete(client, stale)
             evict(stale)
             logger.info("{} deleted (note removed from vault)", stale)
+
+    if failed:
+        raise click.ClickException(f"{failed} note(s) failed to sync")
 
 
 @cli.command()

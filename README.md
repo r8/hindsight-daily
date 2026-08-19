@@ -33,7 +33,13 @@ api_key: your-api-key
 api_url:                    # optional, for local Hindsight installations
 daily_notes_path: /path/to/vault/journals
 verbose: false
+retain_timeout: 1800        # optional, max seconds to wait for a note to be ingested
+retain_poll_interval: 3     # optional, initial seconds between ingestion status checks
 ```
+
+Notes are submitted asynchronously: the server queues the ingestion and `sync` polls it to
+completion before marking the note as synced. Large notes can take the server several minutes,
+so raise `retain_timeout` if a note reports that it is still being ingested.
 
 ## Usage
 

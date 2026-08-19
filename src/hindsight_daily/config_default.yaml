@@ -3,3 +3,5 @@ bank_id:
 api_key:
 api_url:
 daily_notes_path:
+retain_timeout: 1800
+retain_poll_interval: 3
