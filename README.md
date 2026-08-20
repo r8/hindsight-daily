@@ -50,6 +50,7 @@ so raise `retain_timeout` if a note reports that it is still being ingested.
 hindsight-daily sync             # sync new and changed notes
 hindsight-daily sync --limit 5   # sync at most 5 notes
 hindsight-daily sync --date DATE # sync just one note
+hindsight-daily sync --prune     # allow deletion even when the vault is empty
 hindsight-daily forget DATE      # remove a note from server and cache
 hindsight-daily status           # show pending/up-to-date counts
 hindsight-daily -v status        # show individual note dates

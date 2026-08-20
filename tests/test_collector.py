@@ -1,6 +1,8 @@
 from datetime import date
 
-from hindsight_daily.collector import collect
+import pytest
+
+from hindsight_daily.collector import DuplicateNoteError, collect
 
 
 def test_collects_valid_date_files(tmp_path):
@@ -57,3 +59,41 @@ def test_returns_path_alongside_date(tmp_path):
     p.write_text("x")
     d, path = list(collect(tmp_path))[0]
     assert path == p
+
+
+def test_duplicate_dates_in_different_directories_raise(tmp_path):
+    (tmp_path / "old").mkdir()
+    (tmp_path / "imported").mkdir()
+    first = tmp_path / "imported" / "2026-01-15.md"
+    second = tmp_path / "old" / "2026-01-15.md"
+    first.write_text("a")
+    second.write_text("b")
+
+    with pytest.raises(DuplicateNoteError) as exc_info:
+        collect(tmp_path)
+
+    assert exc_info.value.date == date(2026, 1, 15)
+    assert {exc_info.value.first, exc_info.value.second} == {first, second}
+    assert str(first) in str(exc_info.value)
+    assert str(second) in str(exc_info.value)
+
+
+def test_duplicate_report_is_stable_across_runs(tmp_path):
+    for sub in ("b", "a"):
+        (tmp_path / sub).mkdir()
+        (tmp_path / sub / "2026-01-15.md").write_text(sub)
+
+    errors = []
+    for _ in range(2):
+        with pytest.raises(DuplicateNoteError) as exc_info:
+            collect(tmp_path)
+        errors.append((exc_info.value.first, exc_info.value.second))
+
+    assert errors[0] == errors[1]
+
+
+def test_collect_returns_a_list(tmp_path):
+    (tmp_path / "2026-01-15.md").write_text("x")
+    result = collect(tmp_path)
+    assert isinstance(result, list)
+    assert len(result) == 1

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from hindsight_daily.cli import cli
+from hindsight_daily.collector import DuplicateNoteError
 from hindsight_daily.config import Settings, SettingsError
 from hindsight_daily.hindsight import HindsightSubmitError
 from hindsight_daily.parser import Note
@@ -46,7 +47,8 @@ def _base_patches(tmp_path, notes, *, needs_sync_val=True, cached=None, verbose=
     ]
 
 
-def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True, cached=None, failing_dates=()):
+def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True, cached=None,
+             failing_dates=(), prune=False):
     """Invoke sync with all external dependencies mocked."""
     submitted: list[date] = []
     deleted: list[str] = []
@@ -67,6 +69,8 @@ def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True,
             args += ["--limit", str(limit)]
         if date_arg is not None:
             args += ["--date", date_arg]
+        if prune:
+            args.append("--prune")
         result = CliRunner().invoke(cli, args)
 
     return result, submitted, deleted
@@ -347,3 +351,52 @@ def test_config_error_is_reported_without_a_traceback():
     assert result.exit_code != 0
     assert "bank_id is not set" in result.output
     assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+# --- empty-vault guard ---
+
+def test_empty_vault_does_not_delete_cached_notes(tmp_path):
+    result, submitted, deleted = run_sync(tmp_path, [], cached=["2026-01-01", "2026-01-02"])
+    assert result.exit_code != 0
+    assert deleted == []
+    assert "refusing to delete" in result.output
+
+
+def test_empty_vault_deletes_with_explicit_prune(tmp_path):
+    result, submitted, deleted = run_sync(
+        tmp_path, [], cached=["2026-01-01", "2026-01-02"], prune=True
+    )
+    assert result.exit_code == 0
+    assert sorted(deleted) == ["2026-01-01", "2026-01-02"]
+
+
+def test_empty_vault_and_empty_cache_is_not_an_error(tmp_path):
+    result, submitted, deleted = run_sync(tmp_path, [], cached=[])
+    assert result.exit_code == 0
+    assert deleted == []
+
+
+def test_stale_notes_still_deleted_when_the_vault_has_notes(tmp_path):
+    notes = [make_note(date(2026, 1, 1))]
+    result, submitted, deleted = run_sync(tmp_path, notes, cached=["2026-01-01", "2025-12-31"])
+    assert result.exit_code == 0
+    assert deleted == ["2025-12-31"]
+
+
+def test_duplicate_dates_abort_sync_without_deleting(tmp_path):
+    with ExitStack() as stack:
+        for p in _base_patches(tmp_path, [], cached=["2026-01-15"]):
+            stack.enter_context(p)
+        stack.enter_context(patch(
+            "hindsight_daily.cli.collect",
+            side_effect=DuplicateNoteError(date(2026, 1, 15), Path("/a.md"), Path("/b.md")),
+        ))
+        deleted: list[str] = []
+        stack.enter_context(
+            patch("hindsight_daily.cli.delete", side_effect=lambda _c, _s, d: deleted.append(d))
+        )
+        result = CliRunner().invoke(cli, ["sync"])
+
+    assert result.exit_code != 0
+    assert "two notes share the date" in result.output
+    assert deleted == []

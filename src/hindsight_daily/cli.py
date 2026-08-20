@@ -7,7 +7,7 @@ import click
 from loguru import logger
 
 from .cache import cached_dates, evict, mark_synced, needs_sync
-from .collector import collect
+from .collector import DuplicateNoteError, collect
 from .config import Settings, SettingsError, load_settings
 from .hindsight import HindsightSubmitError, delete, get_client, submit
 from .parser import Note, is_empty, parse
@@ -40,8 +40,15 @@ def _settings(ctx: click.Context) -> Settings:
     return settings
 
 
+def _collect(notes_path: Path) -> list[tuple[_date, Path]]:
+    try:
+        return collect(notes_path)
+    except DuplicateNoteError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def _iter_notes(notes_path: Path) -> Iterator[Note]:
-    for entry_date, file in collect(notes_path):
+    for entry_date, file in _collect(notes_path):
         note = parse(entry_date, file)
         if is_empty(note):
             logger.debug("{} has no content sections, skipping", note.date)
@@ -60,14 +67,16 @@ def cli(ctx: click.Context, verbose: bool | None) -> None:
 @click.option("--limit", type=int, default=None, help="Maximum number of notes to submit in one run.")
 @click.option("--date", "target", type=IsoDate(), metavar="DATE", default=None,
               help="Sync only the note for DATE (YYYY-MM-DD); skips the deletion phase.")
+@click.option("--prune", is_flag=True,
+              help="Allow the deletion phase to run even when the vault yields no notes at all.")
 @click.pass_context
-def sync(ctx: click.Context, limit: int | None, target: _date | None) -> None:
+def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: bool) -> None:
     """Submit new and changed notes to Hindsight, remove notes deleted from the vault."""
     settings = _settings(ctx)
 
     with get_client(settings) as client:
         if target is not None:
-            for entry_date, file in collect(settings.notes_path):
+            for entry_date, file in _collect(settings.notes_path):
                 if entry_date != target:
                     continue
                 note = parse(entry_date, file)
@@ -106,7 +115,15 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None) -> None:
             else:
                 logger.debug("{} unchanged, skipping", note.date)
 
-        for stale in cached_dates() - synced_dates:
+        stale_dates = cached_dates() - synced_dates
+        if stale_dates and not synced_dates and not prune:
+            # An unmounted vault or a mistyped path looks exactly like "every note was deleted".
+            raise click.ClickException(
+                f"vault has no notes but the cache holds {len(stale_dates)}; refusing to delete them. "
+                f"Check {settings.notes_path}, or pass --prune if the vault really is empty."
+            )
+
+        for stale in stale_dates:
             delete(client, settings, stale)
             evict(stale)
             logger.info("{} deleted (note removed from vault)", stale)
@@ -121,7 +138,7 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None) -> None:
 def forget(ctx: click.Context, target: _date) -> None:
     """Remove a note for DATE (YYYY-MM-DD) from the Hindsight server and local cache."""
     settings = _settings(ctx)
-    if any(d == target for d, _ in collect(settings.notes_path)):
+    if any(d == target for d, _ in _collect(settings.notes_path)):
         logger.warning("{} still exists in vault; next `sync` will recreate it", target)
 
     with get_client(settings) as client:

@@ -9,6 +9,10 @@
 - Validate `bank_id`, `api_url`, and `daily_notes_path` when a command starts and report problems
   as plain errors naming the config file, instead of confuse tracebacks. A malformed config no
   longer breaks `--help`
+- Refuse to delete every cached note when the vault yields no notes at all, so an unmounted
+  vault or a mistyped path no longer wipes the bank. Pass `--prune` when the vault really is empty
+- Reject two vault files claiming the same date instead of letting them overwrite each other on
+  the server every run. The error names both paths
 
 - Submit notes asynchronously and poll the server until ingestion completes, so large notes no
   longer fail with a request timeout; wait limits are configurable via `retain_timeout` and
