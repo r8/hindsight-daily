@@ -28,14 +28,17 @@ pip install hindsight-daily
 Config lives in `~/.config/hindsight-daily/config.yaml` (XDG-compliant):
 
 ```yaml
-bank_id: your-bank-id
+bank_id: your-bank-id       # required
 api_key: your-api-key
-api_url:                    # optional, for local Hindsight installations
-daily_notes_path: /path/to/vault/journals
+api_url: https://your-hindsight-host   # required
+daily_notes_path: /path/to/vault/journals   # required, must be an existing directory
 verbose: false
 retain_timeout: 1800        # optional, max seconds to wait for a note to be ingested
 retain_poll_interval: 3     # optional, initial seconds between ingestion status checks
 ```
+
+`bank_id`, `api_url`, and `daily_notes_path` are required and validated when a command starts;
+anything missing is reported as a plain error naming the config file.
 
 Notes are submitted asynchronously: the server queues the ingestion and `sync` polls it to
 completion before marking the note as synced. Large notes can take the server several minutes,

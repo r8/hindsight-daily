@@ -4,6 +4,12 @@
 
 ### Changed
 
+- **Breaking:** `api_url` is now required. The client has no built-in default, so a configuration
+  without it never actually worked — it failed with an `AttributeError` instead of a message
+- Validate `bank_id`, `api_url`, and `daily_notes_path` when a command starts and report problems
+  as plain errors naming the config file, instead of confuse tracebacks. A malformed config no
+  longer breaks `--help`
+
 - Submit notes asynchronously and poll the server until ingestion completes, so large notes no
   longer fail with a request timeout; wait limits are configurable via `retain_timeout` and
   `retain_poll_interval`

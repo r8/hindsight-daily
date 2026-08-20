@@ -1,9 +1,11 @@
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hindsight_daily.config import Settings
 from hindsight_daily.hindsight import HindsightSubmitError, delete, submit
 from hindsight_daily.parser import Note
 
@@ -62,25 +64,22 @@ def make_client(
     return client
 
 
-def fake_config(**values) -> MagicMock:
-    """confuse-like config where each key returns its own view (MagicMock reuses one child)."""
-    def view_for(key):
-        view = MagicMock()
-        view.get.return_value = values[key]
-        return view
-
-    mock_config = MagicMock()
-    mock_config.__getitem__.side_effect = view_for
-    return mock_config
+def make_settings(*, timeout: float = 60.0) -> Settings:
+    return Settings(
+        bank_id="bank",
+        api_key="key",
+        api_url="https://hindsight.example",
+        notes_path=Path("/vault"),
+        verbose=False,
+        retain_timeout=timeout,
+        retain_poll_interval=0.0,
+    )
 
 
 def run_submit(client: MagicMock, note: Note | None = None, *, timeout: float = 60.0):
-    mock_config = fake_config(bank_id="bank", retain_timeout=timeout, retain_poll_interval=0.0)
-
-    with patch("hindsight_daily.hindsight.config", mock_config), \
-            patch("hindsight_daily.hindsight.time.sleep"), \
+    with patch("hindsight_daily.hindsight.time.sleep"), \
             patch("hindsight_daily.hindsight._run_async", side_effect=lambda coro: coro):
-        submit(client, note or make_note())
+        submit(client, make_settings(timeout=timeout), note or make_note())
 
 
 # --- submission ---
@@ -159,10 +158,8 @@ def test_delete_removes_documents_from_every_page():
     doc_ids = [f"journal:2026-01-02_{i:03d}" for i in range(1, 121)]
     client = make_client(retain_response(), [], doc_ids, server_page_size=100)
 
-    mock_config = fake_config(bank_id="bank", retain_timeout=60.0, retain_poll_interval=0.0)
-    with patch("hindsight_daily.hindsight.config", mock_config), \
-            patch("hindsight_daily.hindsight._run_async", side_effect=lambda coro: coro):
-        delete(client, "2026-01-02")
+    with patch("hindsight_daily.hindsight._run_async", side_effect=lambda coro: coro):
+        delete(client, make_settings(), "2026-01-02")
 
     deleted = {call.args[1] for call in client.documents.delete_document.call_args_list}
     assert deleted == set(doc_ids)

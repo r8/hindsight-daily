@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from hindsight_daily.cli import cli
+from hindsight_daily.config import Settings, SettingsError
 from hindsight_daily.hindsight import HindsightSubmitError
 from hindsight_daily.parser import Note
 
@@ -14,18 +15,26 @@ def make_note(d: date) -> Note:
     return Note(date=d, frontmatter={}, content="## S\n\nText", content_hash=f"hash_{d}")
 
 
+def make_settings(tmp_path, *, verbose=False) -> Settings:
+    return Settings(
+        bank_id="bank",
+        api_key="key",
+        api_url="https://hindsight.example",
+        notes_path=Path(tmp_path),
+        verbose=verbose,
+        retain_timeout=60.0,
+        retain_poll_interval=0.0,
+    )
+
+
 def _base_patches(tmp_path, notes, *, needs_sync_val=True, cached=None, verbose=False):
     """Common patches shared by sync and status tests."""
-    mock_config = MagicMock()
-    mock_config["daily_notes_path"].as_filename.return_value = str(tmp_path)
-    mock_config["verbose"].get.return_value = verbose
-
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
 
     return [
-        patch("hindsight_daily.cli.config", mock_config),
+        patch("hindsight_daily.cli.load_settings", return_value=make_settings(tmp_path, verbose=verbose)),
         patch("hindsight_daily.cli.get_client", return_value=mock_client),
         patch("hindsight_daily.cli.collect", return_value=[(n.date, Path(tmp_path)) for n in notes]),
         patch("hindsight_daily.cli.parse", side_effect=lambda d, _: next(n for n in notes if n.date == d)),
@@ -42,7 +51,7 @@ def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True,
     submitted: list[date] = []
     deleted: list[str] = []
 
-    def fake_submit(_, note):
+    def fake_submit(_client, _settings, note):
         if note.date in failing_dates:
             raise HindsightSubmitError(f"{note.date}: still being ingested")
         submitted.append(note.date)
@@ -51,7 +60,7 @@ def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True,
         for p in _base_patches(tmp_path, notes, needs_sync_val=needs_sync_val, cached=cached):
             stack.enter_context(p)
         stack.enter_context(patch("hindsight_daily.cli.submit", side_effect=fake_submit))
-        stack.enter_context(patch("hindsight_daily.cli.delete", side_effect=lambda _, d: deleted.append(d)))
+        stack.enter_context(patch("hindsight_daily.cli.delete", side_effect=lambda _c, _s, d: deleted.append(d)))
 
         args = ["sync"]
         if limit is not None:
@@ -258,22 +267,20 @@ def run_forget(tmp_path, date_arg, *, vault_dates=()):
     deleted: list[str] = []
     evicted: list[str] = []
 
-    mock_config = MagicMock()
-    mock_config["daily_notes_path"].as_filename.return_value = str(tmp_path)
-    mock_config["verbose"].get.return_value = False
-
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
 
     with ExitStack() as stack:
-        stack.enter_context(patch("hindsight_daily.cli.config", mock_config))
+        stack.enter_context(
+            patch("hindsight_daily.cli.load_settings", return_value=make_settings(tmp_path))
+        )
         stack.enter_context(patch("hindsight_daily.cli.get_client", return_value=mock_client))
         stack.enter_context(patch(
             "hindsight_daily.cli.collect",
             return_value=[(d, Path(tmp_path)) for d in vault_dates],
         ))
-        stack.enter_context(patch("hindsight_daily.cli.delete", side_effect=lambda _, d: deleted.append(d)))
+        stack.enter_context(patch("hindsight_daily.cli.delete", side_effect=lambda _c, _s, d: deleted.append(d)))
         stack.enter_context(patch("hindsight_daily.cli.evict", side_effect=lambda d: evicted.append(d)))
         result = CliRunner().invoke(cli, ["forget", date_arg])
 
@@ -324,3 +331,19 @@ def test_status_mixed(tmp_path):
     )
     assert "needs sync     2" in result.output
     assert "up to date     2" in result.output
+
+
+# --- configuration errors ---
+
+def test_help_works_without_a_usable_config():
+    with patch("hindsight_daily.cli.load_settings", side_effect=SettingsError("bank_id is not set")):
+        assert CliRunner().invoke(cli, ["--help"]).exit_code == 0
+        assert CliRunner().invoke(cli, ["sync", "--help"]).exit_code == 0
+
+
+def test_config_error_is_reported_without_a_traceback():
+    with patch("hindsight_daily.cli.load_settings", side_effect=SettingsError("bank_id is not set")):
+        result = CliRunner().invoke(cli, ["status"])
+    assert result.exit_code != 0
+    assert "bank_id is not set" in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)

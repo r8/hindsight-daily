@@ -5,7 +5,7 @@ from hindsight_client import Hindsight as _Hindsight
 from hindsight_client.hindsight_client import _run_async
 from loguru import logger
 
-from .config import config
+from .config import Settings
 from .parser import Note, to_retain_items
 
 _MAX_POLL_INTERVAL = 15.0
@@ -16,10 +16,8 @@ class HindsightSubmitError(Exception):
     """Raised when a note could not be retained by the Hindsight server."""
 
 
-def get_client() -> _Hindsight:
-    api_key: str | None = config["api_key"].get() or None
-    api_url: str | None = config["api_url"].get() or None
-    return _Hindsight(api_key=api_key, base_url=api_url)  # type: ignore[arg-type]
+def get_client(settings: Settings) -> _Hindsight:
+    return _Hindsight(api_key=settings.api_key, base_url=settings.api_url)
 
 
 def _list_section_doc_ids(client: _Hindsight, bank_id: str, date_str: str) -> list[str]:
@@ -59,14 +57,16 @@ def _check_children(operation: Any, label: str) -> None:
         )
 
 
-def _wait_for_operations(client: _Hindsight, bank_id: str, op_ids: list[str], label: str) -> None:
+def _wait_for_operations(
+    client: _Hindsight, settings: Settings, op_ids: list[str], label: str
+) -> None:
     """Poll async retain operations until all finish, fail, or the deadline passes."""
     if not op_ids:
         logger.debug("{}: retained inline, no operations to await", label)
         return
 
-    timeout = config["retain_timeout"].get(float)
-    interval = config["retain_poll_interval"].get(float)
+    timeout = settings.retain_timeout
+    interval = settings.retain_poll_interval
     deadline = time.monotonic() + timeout
     pending = list(op_ids)
     logger.debug("{}: awaiting {} retain operation(s)", label, len(pending))
@@ -83,7 +83,7 @@ def _wait_for_operations(client: _Hindsight, bank_id: str, op_ids: list[str], la
         still_pending = []
         for op_id in pending:
             try:
-                operation = _run_async(client.operations.get_operation_status(bank_id, op_id))
+                operation = _run_async(client.operations.get_operation_status(settings.bank_id, op_id))
             except Exception as exc:
                 raise HindsightSubmitError(f"{label}: could not read status of operation {op_id}: {exc!r}") from exc
             _check_children(operation, label)
@@ -101,8 +101,8 @@ def _wait_for_operations(client: _Hindsight, bank_id: str, op_ids: list[str], la
             logger.debug("{}: {} operation(s) still pending", label, len(pending))
 
 
-def submit(client: _Hindsight, note: Note) -> None:
-    bank_id = config["bank_id"].get(str)
+def submit(client: _Hindsight, settings: Settings, note: Note) -> None:
+    bank_id = settings.bank_id
     label = str(note.date)
     items = to_retain_items(note)
     new_ids = {item["document_id"] for item in items}
@@ -117,10 +117,9 @@ def submit(client: _Hindsight, note: Note) -> None:
         response = client.retain_batch(bank_id=bank_id, items=items, retain_async=True)
     except Exception as exc:
         raise HindsightSubmitError(f"{label}: retain request failed: {exc!r}") from exc
-    _wait_for_operations(client, bank_id, _operation_ids(response), label)
+    _wait_for_operations(client, settings, _operation_ids(response), label)
 
 
-def delete(client: _Hindsight, date_str: str) -> None:
-    bank_id = config["bank_id"].get(str)
-    for doc_id in _list_section_doc_ids(client, bank_id, date_str):
-        _run_async(client.documents.delete_document(bank_id, doc_id))
+def delete(client: _Hindsight, settings: Settings, date_str: str) -> None:
+    for doc_id in _list_section_doc_ids(client, settings.bank_id, date_str):
+        _run_async(client.documents.delete_document(settings.bank_id, doc_id))

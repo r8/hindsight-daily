@@ -1,7 +1,7 @@
 verbose: false
-bank_id:
+bank_id:                    # required
 api_key:
-api_url:
-daily_notes_path:
+api_url:                    # required
+daily_notes_path:           # required
 retain_timeout: 1800
 retain_poll_interval: 3
