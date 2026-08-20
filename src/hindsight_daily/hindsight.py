@@ -1,4 +1,5 @@
 import time
+from datetime import date
 from typing import Any
 
 from hindsight_client import Hindsight as _Hindsight
@@ -120,6 +121,6 @@ def submit(client: _Hindsight, settings: Settings, note: Note) -> None:
     _wait_for_operations(client, settings, _operation_ids(response), label)
 
 
-def delete(client: _Hindsight, settings: Settings, date_str: str) -> None:
-    for doc_id in _list_section_doc_ids(client, settings.bank_id, date_str):
+def delete(client: _Hindsight, settings: Settings, entry_date: date) -> None:
+    for doc_id in _list_section_doc_ids(client, settings.bank_id, entry_date.isoformat()):
         _run_async(client.documents.delete_document(settings.bank_id, doc_id))

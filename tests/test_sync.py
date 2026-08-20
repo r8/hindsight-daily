@@ -42,7 +42,8 @@ def _base_patches(tmp_path, notes, *, needs_sync_val=True, cached=None, verbose=
         patch("hindsight_daily.cli.is_empty", return_value=False),
         patch("hindsight_daily.cli.needs_sync", return_value=needs_sync_val),
         patch("hindsight_daily.cli.mark_synced"),
-        patch("hindsight_daily.cli.cached_dates", return_value=set(cached or [])),
+        patch("hindsight_daily.cli.cached_dates",
+              return_value={date.fromisoformat(d) for d in cached or []}),
         patch("hindsight_daily.cli.evict"),
     ]
 
@@ -141,7 +142,7 @@ def test_removed_notes_still_deleted(tmp_path):
     notes = [make_note(date(2026, 1, 1))]
     cached = ["2026-01-01", "2026-01-15"]
     _, _, deleted = run_sync(tmp_path, notes, cached=cached)
-    assert "2026-01-15" in deleted
+    assert date(2026, 1, 15) in deleted
 
 
 # --- sync: submit failures ---
@@ -214,7 +215,7 @@ def test_sync_date_not_in_vault(tmp_path):
 
 def test_sync_date_skips_deletion_phase(tmp_path):
     notes = [make_note(date(2026, 1, 2))]
-    cached = ["2026-01-02", "2026-01-99-stale"]
+    cached = ["2026-01-02", "2025-12-31"]
     _, _, deleted = run_sync(tmp_path, notes, date_arg="2026-01-02", cached=cached)
     assert deleted == []
 
@@ -296,8 +297,8 @@ def run_forget(tmp_path, date_arg, *, vault_dates=()):
 def test_forget_happy_path(tmp_path):
     result, deleted, evicted = run_forget(tmp_path, "2026-01-15")
     assert result.exit_code == 0
-    assert deleted == ["2026-01-15"]
-    assert evicted == ["2026-01-15"]
+    assert deleted == [date(2026, 1, 15)]
+    assert evicted == [date(2026, 1, 15)]
 
 
 def test_forget_invalid_date(tmp_path):
@@ -311,8 +312,8 @@ def test_forget_warns_when_note_in_vault(tmp_path):
     target = date(2026, 1, 15)
     result, deleted, evicted = run_forget(tmp_path, "2026-01-15", vault_dates=[target])
     assert result.exit_code == 0
-    assert deleted == ["2026-01-15"]
-    assert evicted == ["2026-01-15"]
+    assert deleted == [date(2026, 1, 15)]
+    assert evicted == [date(2026, 1, 15)]
     assert "still exists in vault" in result.output
 
 
@@ -367,7 +368,7 @@ def test_empty_vault_deletes_with_explicit_prune(tmp_path):
         tmp_path, [], cached=["2026-01-01", "2026-01-02"], prune=True
     )
     assert result.exit_code == 0
-    assert sorted(deleted) == ["2026-01-01", "2026-01-02"]
+    assert deleted == [date(2026, 1, 1), date(2026, 1, 2)]
 
 
 def test_empty_vault_and_empty_cache_is_not_an_error(tmp_path):
@@ -380,7 +381,7 @@ def test_stale_notes_still_deleted_when_the_vault_has_notes(tmp_path):
     notes = [make_note(date(2026, 1, 1))]
     result, submitted, deleted = run_sync(tmp_path, notes, cached=["2026-01-01", "2025-12-31"])
     assert result.exit_code == 0
-    assert deleted == ["2025-12-31"]
+    assert deleted == [date(2025, 12, 31)]
 
 
 def test_duplicate_dates_abort_sync_without_deleting(tmp_path):

@@ -40,6 +40,13 @@ retain_poll_interval: 3     # optional, initial seconds between ingestion status
 `bank_id`, `api_url`, and `daily_notes_path` are required and validated when a command starts;
 anything missing is reported as a plain error naming the config file.
 
+### Cache
+
+Sync state lives in a local cache (`~/Library/Caches/hindsight-daily` on macOS,
+`~/.cache/hindsight-daily` on Linux), which records the content hash last submitted for each date.
+It is keyed by date alone, so **switching `bank_id` will not re-upload anything** — every note
+still reports as unchanged. Delete the cache directory when pointing the tool at a different bank.
+
 Notes are submitted asynchronously: the server queues the ingestion and `sync` polls it to
 completion before marking the note as synced. Large notes can take the server several minutes,
 so raise `retain_timeout` if a note reports that it is still being ingested.
@@ -59,4 +66,4 @@ hindsight-daily -v sync          # sync with debug logging
 
 ## Content structure
 
-Each section of a note is submitted as a separate Hindsight document (e.g. `journal:2024-01-07_001`, `journal:2024-01-07_002`). The `journal:` prefix namespaces documents to avoid collisions with other tools writing to the same bank. The shallowest heading level present in the note becomes the section boundary; deeper headings are merged into their parent section as text blocks. Bullet and ordered lists preserve their markers. Blockquotes and unlabeled code blocks are wrapped in `<quote>` tags so Hindsight distinguishes external content from the user's own writing. Language-tagged code blocks use `<code lang="...">`. Wikilinks in section titles are extracted as scoped entity declarations so Hindsight correctly associates facts with the right entities.
+Each section of a note is submitted as a separate Hindsight document (e.g. `journal:2024-01-07_001`, `journal:2024-01-07_002`). The `journal:` prefix namespaces documents to avoid collisions with other tools writing to the same bank. The shallowest top-level heading level present in the note becomes the section boundary; deeper headings are merged into their parent section as text blocks. Section content is sliced out of the original markdown rather than reassembled, so nested lists, ordered-list numbering, tables, HTML and other constructs are preserved as written. Blockquotes, unlabeled code blocks and indented code are wrapped in `<quote>` tags so Hindsight distinguishes external content from the user's own writing. Language-tagged code blocks use `<code lang="...">`. Wikilinks in section titles are extracted as scoped entity declarations so Hindsight correctly associates facts with the right entities.

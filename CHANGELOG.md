@@ -22,6 +22,12 @@
 
 ### Fixed
 
+- Preserve nested lists, ordered-list start numbers, multi-paragraph list items, indented code,
+  HTML blocks, tables and thematic breaks, all of which the section parser used to drop silently
+- Stop classifying notes made only of indented code or an HTML block as empty. Such a note was
+  skipped, which kept its date out of the vault set, which made the deletion phase remove it from
+  the server
+
 - Page through the document listing when cleaning up a date, so sections removed from a long note
   are no longer left behind on the server
 

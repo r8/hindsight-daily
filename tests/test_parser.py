@@ -217,3 +217,33 @@ def test_section_content_has_markdown_h2_prefix(tmp_path):
     items = to_retain_items(parse(date(2026, 1, 15), p))
     parsed = json.loads(items[0]["content"])
     assert parsed["sections"][0]["content"].startswith("## [[Proj]]")
+
+
+# --- emptiness matches what would be submitted ---
+
+def test_indented_code_only_note_is_not_empty(tmp_path):
+    p = write_note(tmp_path / "note.md", "    x = 1\n    y = 2\n")
+    note = parse(date(2026, 1, 15), p)
+    assert is_empty(note) is False
+    assert len(to_retain_items(note)) == 1
+
+
+def test_html_only_note_is_not_empty(tmp_path):
+    p = write_note(tmp_path / "note.md", "<div>hello</div>\n")
+    note = parse(date(2026, 1, 15), p)
+    assert is_empty(note) is False
+    assert len(to_retain_items(note)) == 1
+
+
+def test_headings_only_note_is_still_empty(tmp_path):
+    p = write_note(tmp_path / "note.md", "## Morning\n\n## Evening\n")
+    note = parse(date(2026, 1, 15), p)
+    assert is_empty(note) is True
+    assert to_retain_items(note) == []
+
+
+def test_is_empty_agrees_with_to_retain_items(tmp_path):
+    bodies = ["", "   \n\n  \n", "## H\n", "text", "    code", "<div/>", "---", "> quote"]
+    for body in bodies:
+        note = parse(date(2026, 1, 15), write_note(tmp_path / "note.md", body))
+        assert is_empty(note) == (not to_retain_items(note)), body

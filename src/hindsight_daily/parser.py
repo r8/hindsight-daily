@@ -37,7 +37,12 @@ def parse(entry_date: date, path: Path) -> Note:
 
 
 def is_empty(note: Note) -> bool:
-    return not any(s.blocks for s in parse_sections(note.content))
+    """Emptiness is defined by what would be submitted, so the two can never disagree.
+
+    When they could, a note that parsed into nothing was skipped by `sync`, kept out of
+    the vault date set, and then deleted from the server as though it had been removed.
+    """
+    return not to_retain_items(note)
 
 
 def _extract_canonical_names(text: str) -> list[str]:

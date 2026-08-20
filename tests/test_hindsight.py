@@ -159,7 +159,7 @@ def test_delete_removes_documents_from_every_page():
     client = make_client(retain_response(), [], doc_ids, server_page_size=100)
 
     with patch("hindsight_daily.hindsight._run_async", side_effect=lambda coro: coro):
-        delete(client, make_settings(), "2026-01-02")
+        delete(client, make_settings(), date(2026, 1, 2))
 
     deleted = {call.args[1] for call in client.documents.delete_document.call_args_list}
     assert deleted == set(doc_ids)

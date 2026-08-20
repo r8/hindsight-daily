@@ -6,7 +6,7 @@ from typing import Any
 import click
 from loguru import logger
 
-from .cache import cached_dates, evict, mark_synced, needs_sync
+from .cache import cached_dates, close_cache, evict, mark_synced, needs_sync
 from .collector import DuplicateNoteError, collect
 from .config import Settings, SettingsError, load_settings
 from .hindsight import HindsightSubmitError, delete, get_client, submit
@@ -37,6 +37,7 @@ def _settings(ctx: click.Context) -> Settings:
     if not settings.verbose:
         logger.remove()
         logger.add(lambda msg: click.echo(msg.strip(), err=True), level="INFO")
+    ctx.call_on_close(close_cache)
     return settings
 
 
@@ -94,11 +95,11 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
                 return
             raise click.ClickException(f"no note found for {target}")
 
-        synced_dates: set[str] = set()
+        vault_dates: set[_date] = set()
         submitted = 0
         failed = 0
         for note in _iter_notes(settings.notes_path):
-            synced_dates.add(str(note.date))
+            vault_dates.add(note.date)
             if needs_sync(note):
                 if limit is not None and submitted >= limit:
                     logger.debug("{} needs sync but limit reached, deferring", note.date)
@@ -115,15 +116,15 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
             else:
                 logger.debug("{} unchanged, skipping", note.date)
 
-        stale_dates = cached_dates() - synced_dates
-        if stale_dates and not synced_dates and not prune:
+        stale_dates = cached_dates() - vault_dates
+        if stale_dates and not vault_dates and not prune:
             # An unmounted vault or a mistyped path looks exactly like "every note was deleted".
             raise click.ClickException(
                 f"vault has no notes but the cache holds {len(stale_dates)}; refusing to delete them. "
                 f"Check {settings.notes_path}, or pass --prune if the vault really is empty."
             )
 
-        for stale in stale_dates:
+        for stale in sorted(stale_dates):
             delete(client, settings, stale)
             evict(stale)
             logger.info("{} deleted (note removed from vault)", stale)
@@ -142,8 +143,8 @@ def forget(ctx: click.Context, target: _date) -> None:
         logger.warning("{} still exists in vault; next `sync` will recreate it", target)
 
     with get_client(settings) as client:
-        delete(client, settings, str(target))
-        evict(str(target))
+        delete(client, settings, target)
+        evict(target)
     logger.info("{} forgotten", target)
 
 
@@ -153,16 +154,16 @@ def status(ctx: click.Context) -> None:
     """Show counts of up-to-date, pending, and stale notes."""
     settings = _settings(ctx)
 
-    vault_dates: set[str] = set()
-    pending: list[str] = []
-    up_to_date: list[str] = []
+    vault_dates: set[_date] = set()
+    pending: list[_date] = []
+    up_to_date: list[_date] = []
 
     for note in _iter_notes(settings.notes_path):
-        vault_dates.add(str(note.date))
+        vault_dates.add(note.date)
         if needs_sync(note):
-            pending.append(str(note.date))
+            pending.append(note.date)
         else:
-            up_to_date.append(str(note.date))
+            up_to_date.append(note.date)
 
     stale = sorted(cached_dates() - vault_dates)
 

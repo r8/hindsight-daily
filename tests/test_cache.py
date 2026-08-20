@@ -40,21 +40,21 @@ def test_changed_hash_needs_sync_again(cache_module):
 def test_evicted_note_needs_sync(cache_module):
     note = make_note(date(2026, 1, 15), "abc123")
     cache_module.mark_synced(note)
-    cache_module.evict("2026-01-15")
+    cache_module.evict(date(2026, 1, 15))
     assert cache_module.needs_sync(note) is True
 
 
 def test_cached_dates_returns_all_synced(cache_module):
     cache_module.mark_synced(make_note(date(2026, 1, 15), "h1"))
     cache_module.mark_synced(make_note(date(2026, 2, 20), "h2"))
-    assert cache_module.cached_dates() == {"2026-01-15", "2026-02-20"}
+    assert cache_module.cached_dates() == {date(2026, 1, 15), date(2026, 2, 20)}
 
 
 def test_cached_dates_excludes_evicted(cache_module):
     cache_module.mark_synced(make_note(date(2026, 1, 15), "h1"))
     cache_module.mark_synced(make_note(date(2026, 2, 20), "h2"))
-    cache_module.evict("2026-01-15")
-    assert cache_module.cached_dates() == {"2026-02-20"}
+    cache_module.evict(date(2026, 1, 15))
+    assert cache_module.cached_dates() == {date(2026, 2, 20)}
 
 
 def test_cached_dates_empty_initially(cache_module):
@@ -67,3 +67,16 @@ def test_different_dates_are_independent(cache_module):
     cache_module.mark_synced(note_a)
     assert cache_module.needs_sync(note_b) is True
     assert cache_module.needs_sync(note_a) is False
+
+
+def test_cached_dates_ignores_keys_that_are_not_dates(cache_module):
+    cache_module.mark_synced(make_note(date(2026, 1, 15), "h1"))
+    cache_module._open().set("not-a-date", "junk")
+    cache_module._open().set("2026-01-99", "junk")
+    assert cache_module.cached_dates() == {date(2026, 1, 15)}
+
+
+def test_close_reopens_on_next_use(cache_module, tmp_path):
+    cache_module.mark_synced(make_note(date(2026, 1, 15), "h1"))
+    cache_module.close_cache()
+    assert cache_module._cache is None
