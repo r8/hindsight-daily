@@ -28,31 +28,41 @@ def make_settings(tmp_path, *, verbose=False) -> Settings:
     )
 
 
-def _base_patches(tmp_path, notes, *, needs_sync_val=True, cached=None, verbose=False):
+def _base_patches(tmp_path, notes, *, needs_sync_val=True, cached=None, verbose=False,
+                  empty_dates=(), is_cached_val=False, evicted=None):
     """Common patches shared by sync and status tests."""
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
+
+    # A real cache forgets an evicted date, so the fake one must too — otherwise the stale
+    # phase re-deletes whatever _sync_one already removed.
+    cached_set = {date.fromisoformat(d) for d in cached or []}
+
+    def fake_evict(d):
+        cached_set.discard(d)
+        if evicted is not None:
+            evicted.append(d)
 
     return [
         patch("hindsight_daily.cli.load_settings", return_value=make_settings(tmp_path, verbose=verbose)),
         patch("hindsight_daily.cli.get_client", return_value=mock_client),
         patch("hindsight_daily.cli.collect", return_value=[(n.date, Path(tmp_path)) for n in notes]),
         patch("hindsight_daily.cli.parse", side_effect=lambda d, _: next(n for n in notes if n.date == d)),
-        patch("hindsight_daily.cli.is_empty", return_value=False),
+        patch("hindsight_daily.cli.is_empty", side_effect=lambda n: n.date in empty_dates),
+        patch("hindsight_daily.cli.is_cached", return_value=is_cached_val),
         patch("hindsight_daily.cli.needs_sync", return_value=needs_sync_val),
         patch("hindsight_daily.cli.mark_synced"),
-        patch("hindsight_daily.cli.cached_dates",
-              return_value={date.fromisoformat(d) for d in cached or []}),
-        patch("hindsight_daily.cli.evict"),
+        patch("hindsight_daily.cli.cached_dates", side_effect=lambda: set(cached_set)),
+        patch("hindsight_daily.cli.evict", side_effect=fake_evict),
     ]
 
 
 def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True, cached=None,
-             failing_dates=(), prune=False):
+             failing_dates=(), prune=False, empty_dates=(), is_cached_val=False):
     """Invoke sync with all external dependencies mocked."""
     submitted: list[date] = []
-    deleted: list[str] = []
+    deleted: list[date] = []
 
     def fake_submit(_client, _settings, note):
         if note.date in failing_dates:
@@ -60,7 +70,8 @@ def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True,
         submitted.append(note.date)
 
     with ExitStack() as stack:
-        for p in _base_patches(tmp_path, notes, needs_sync_val=needs_sync_val, cached=cached):
+        for p in _base_patches(tmp_path, notes, needs_sync_val=needs_sync_val, cached=cached,
+                               empty_dates=empty_dates, is_cached_val=is_cached_val):
             stack.enter_context(p)
         stack.enter_context(patch("hindsight_daily.cli.submit", side_effect=fake_submit))
         stack.enter_context(patch("hindsight_daily.cli.delete", side_effect=lambda _c, _s, d: deleted.append(d)))
@@ -401,3 +412,89 @@ def test_duplicate_dates_abort_sync_without_deleting(tmp_path):
     assert result.exit_code != 0
     assert "two notes share the date" in result.output
     assert deleted == []
+
+
+# --- notes that became empty ---
+
+def test_emptied_note_is_deleted_by_full_sync(tmp_path):
+    target = date(2026, 1, 15)
+    notes = [make_note(target)]
+    evicted: list[date] = []
+    with ExitStack() as stack:
+        for p in _base_patches(tmp_path, notes, empty_dates={target}, is_cached_val=True,
+                               cached=["2026-01-15"], evicted=evicted):
+            stack.enter_context(p)
+        deleted: list[date] = []
+        stack.enter_context(patch("hindsight_daily.cli.submit"))
+        stack.enter_context(
+            patch("hindsight_daily.cli.delete", side_effect=lambda _c, _s, d: deleted.append(d))
+        )
+        result = CliRunner().invoke(cli, ["sync"])
+
+    assert result.exit_code == 0
+    assert deleted == [target]
+    assert evicted == [target]
+    assert "now empty" in result.output
+
+
+def test_emptied_note_is_deleted_by_targeted_sync(tmp_path):
+    target = date(2026, 1, 15)
+    notes = [make_note(target)]
+    evicted: list[date] = []
+    with ExitStack() as stack:
+        for p in _base_patches(tmp_path, notes, empty_dates={target}, is_cached_val=True,
+                               evicted=evicted):
+            stack.enter_context(p)
+        deleted: list[date] = []
+        stack.enter_context(patch("hindsight_daily.cli.submit"))
+        stack.enter_context(
+            patch("hindsight_daily.cli.delete", side_effect=lambda _c, _s, d: deleted.append(d))
+        )
+        result = CliRunner().invoke(cli, ["sync", "--date", "2026-01-15"])
+
+    assert result.exit_code == 0
+    assert deleted == [target]
+    assert evicted == [target]
+    assert "now empty" in result.output
+
+
+def test_empty_note_that_was_never_synced_is_left_alone(tmp_path):
+    target = date(2026, 1, 15)
+    notes = [make_note(target)]
+    with ExitStack() as stack:
+        for p in _base_patches(tmp_path, notes, empty_dates={target}, is_cached_val=False):
+            stack.enter_context(p)
+        deleted: list[date] = []
+        submitted: list[date] = []
+        stack.enter_context(
+            patch("hindsight_daily.cli.submit", side_effect=lambda _c, _s, n: submitted.append(n.date))
+        )
+        stack.enter_context(
+            patch("hindsight_daily.cli.delete", side_effect=lambda _c, _s, d: deleted.append(d))
+        )
+        result = CliRunner().invoke(cli, ["sync"])
+
+    assert result.exit_code == 0
+    assert deleted == []
+    assert submitted == []
+
+
+def test_empty_note_is_not_counted_as_a_vault_date(tmp_path):
+    """An emptied note must not keep itself alive by appearing in the vault set."""
+    target = date(2026, 1, 15)
+    notes = [make_note(target), make_note(date(2026, 1, 16))]
+    with ExitStack() as stack:
+        for p in _base_patches(tmp_path, notes, empty_dates={target}, is_cached_val=True,
+                               cached=["2026-01-15", "2026-01-16"]):
+            stack.enter_context(p)
+        deleted: list[date] = []
+        stack.enter_context(patch("hindsight_daily.cli.submit"))
+        stack.enter_context(
+            patch("hindsight_daily.cli.delete", side_effect=lambda _c, _s, d: deleted.append(d))
+        )
+        result = CliRunner().invoke(cli, ["sync"])
+
+    assert result.exit_code == 0
+    # deleted once by _sync_one; the stale phase must not see it as a vault date and skip it,
+    # nor delete 2026-01-16, which is present and non-empty
+    assert deleted == [target]

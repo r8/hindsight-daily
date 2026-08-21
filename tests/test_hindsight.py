@@ -94,7 +94,7 @@ def test_submits_asynchronously_with_all_items():
     assert [item["document_id"] for item in kwargs["items"]] == ["journal:2026-01-02_001"]
 
 
-def test_stale_documents_deleted_before_retain():
+def test_obsolete_documents_deleted_after_retain_completes():
     client = make_client(
         retain_response("op-1"), [op("completed")],
         existing_doc_ids=["journal:2026-01-02_001", "journal:2026-01-02_002"],
@@ -102,6 +102,7 @@ def test_stale_documents_deleted_before_retain():
     run_submit(client)
 
     client.documents.delete_document.assert_called_once_with("bank", "journal:2026-01-02_002")
+    client.retain_batch.assert_called_once()
 
 
 def test_stale_document_on_a_later_page_is_deleted():
@@ -170,6 +171,7 @@ def test_empty_note_retains_nothing():
     run_submit(client, Note(date=date(2026, 1, 2), frontmatter={}, content="", content_hash="h"))
 
     client.retain_batch.assert_not_called()
+    client.documents.delete_document.assert_not_called()
 
 
 def test_transport_failure_becomes_submit_error():
@@ -177,6 +179,31 @@ def test_transport_failure_becomes_submit_error():
     client.retain_batch.side_effect = TimeoutError()
 
     with pytest.raises(HindsightSubmitError, match="retain request failed"):
+        run_submit(client)
+
+
+def test_failed_retain_leaves_existing_documents_alone():
+    """A crash mid-submit must leave stale sections behind, never a half-deleted day."""
+    client = make_client(
+        retain_response("op-1"), [],
+        existing_doc_ids=["journal:2026-01-02_001", "journal:2026-01-02_002"],
+    )
+    client.retain_batch.side_effect = TimeoutError()
+
+    with pytest.raises(HindsightSubmitError):
+        run_submit(client)
+
+    client.documents.delete_document.assert_not_called()
+
+
+def test_cleanup_failure_is_reported_separately():
+    client = make_client(
+        retain_response("op-1"), [op("completed")],
+        existing_doc_ids=["journal:2026-01-02_001", "journal:2026-01-02_002"],
+    )
+    client.documents.delete_document.side_effect = TimeoutError()
+
+    with pytest.raises(HindsightSubmitError, match="removing obsolete documents failed"):
         run_submit(client)
 
 

@@ -1,6 +1,5 @@
 import json
 import re
-from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from hashlib import sha256
@@ -14,6 +13,8 @@ from .markdown import Section, format_section, parse_sections
 _NARRATOR = "The human user who owns this journal. All first-person statements refer to the user, not any AI agent."
 
 WIKILINK_RE = re.compile(r'\[\[([^|\]]+?)(?:\s*\|[^\]]*)?\]\]')
+# Obsidian heading (`#`) and block (`^`) anchors point into a note; the entity is the note.
+ANCHOR_RE = re.compile(r'[#^]')
 
 
 @dataclass
@@ -46,10 +47,9 @@ def is_empty(note: Note) -> bool:
 
 
 def _extract_canonical_names(text: str) -> list[str]:
-    seen: OrderedDict[str, None] = OrderedDict()
-    for m in WIKILINK_RE.finditer(text):
-        seen[m.group(1).strip()] = None
-    return list(seen)
+    """Entity names from wikilinks, with anchors stripped so `[[X#Y]]` and `[[X]]` are one entity."""
+    names = (ANCHOR_RE.split(m.group(1))[0].strip() for m in WIKILINK_RE.finditer(text))
+    return list(dict.fromkeys(name for name in names if name))
 
 
 def _section_to_markdown(s: Section) -> str:

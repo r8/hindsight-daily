@@ -106,19 +106,29 @@ def submit(client: _Hindsight, settings: Settings, note: Note) -> None:
     bank_id = settings.bank_id
     label = str(note.date)
     items = to_retain_items(note)
-    new_ids = {item["document_id"] for item in items}
+    if not items:
+        # Nothing to store, and nothing to clean up against — deleting here would wipe the
+        # note's documents and report success. Removing an emptied note is the caller's job.
+        logger.debug("{}: nothing to retain", label)
+        return
+
     try:
-        existing_ids = set(_list_section_doc_ids(client, bank_id, label))
-        for doc_id in existing_ids - new_ids:
-            _run_async(client.documents.delete_document(bank_id, doc_id))
-        if not items:
-            return
         # Retained asynchronously: big notes take the server minutes to ingest, far longer
         # than any request timeout, so we submit and then poll the operations to completion.
         response = client.retain_batch(bank_id=bank_id, items=items, retain_async=True)
     except Exception as exc:
         raise HindsightSubmitError(f"{label}: retain request failed: {exc!r}") from exc
     _wait_for_operations(client, settings, _operation_ids(response), label)
+
+    # Only now that the replacements are stored. Deleting first meant a failed retain left the
+    # server missing sections; this way it is left with stale ones, which the next run removes.
+    # Listing after the retain also avoids deleting ids the retain itself just recreated.
+    new_ids = {item["document_id"] for item in items}
+    try:
+        for doc_id in set(_list_section_doc_ids(client, bank_id, label)) - new_ids:
+            _run_async(client.documents.delete_document(bank_id, doc_id))
+    except Exception as exc:
+        raise HindsightSubmitError(f"{label}: removing obsolete documents failed: {exc!r}") from exc
 
 
 def delete(client: _Hindsight, settings: Settings, entry_date: date) -> None:

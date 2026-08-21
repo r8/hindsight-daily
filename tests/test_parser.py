@@ -247,3 +247,35 @@ def test_is_empty_agrees_with_to_retain_items(tmp_path):
     for body in bodies:
         note = parse(date(2026, 1, 15), write_note(tmp_path / "note.md", body))
         assert is_empty(note) == (not to_retain_items(note)), body
+
+
+# --- wikilink anchors ---
+
+def test_heading_anchor_collapses_to_the_same_entity(tmp_path):
+    p = write_note(tmp_path / "note.md", "## [[Project#Meeting notes]] and [[Project]]\n\nBody.")
+    entities = to_retain_items(parse(date(2026, 1, 15), p))[0]["entities"]
+    assert entities == [{"text": "Project"}]
+
+
+def test_block_anchor_collapses_to_the_same_entity(tmp_path):
+    p = write_note(tmp_path / "note.md", "## [[Project^abc123]] and [[Project]]\n\nBody.")
+    entities = to_retain_items(parse(date(2026, 1, 15), p))[0]["entities"]
+    assert entities == [{"text": "Project"}]
+
+
+def test_alias_and_anchor_together(tmp_path):
+    p = write_note(tmp_path / "note.md", "## [[Project#Notes|the project]]\n\nBody.")
+    entities = to_retain_items(parse(date(2026, 1, 15), p))[0]["entities"]
+    assert entities == [{"text": "Project"}]
+
+
+def test_anchor_only_link_yields_no_entity(tmp_path):
+    p = write_note(tmp_path / "note.md", "## [[#Local heading]]\n\nBody.")
+    entities = to_retain_items(parse(date(2026, 1, 15), p))[0]["entities"]
+    assert entities == []
+
+
+def test_distinct_entities_are_still_distinct(tmp_path):
+    p = write_note(tmp_path / "note.md", "## [[Alpha#x]] and [[Beta]]\n\nBody.")
+    entities = to_retain_items(parse(date(2026, 1, 15), p))[0]["entities"]
+    assert entities == [{"text": "Alpha"}, {"text": "Beta"}]

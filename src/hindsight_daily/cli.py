@@ -1,12 +1,13 @@
 from collections.abc import Iterator
 from datetime import date as _date
+from enum import Enum, auto
 from pathlib import Path
 from typing import Any
 
 import click
 from loguru import logger
 
-from .cache import cached_dates, close_cache, evict, mark_synced, needs_sync
+from .cache import cached_dates, close_cache, evict, is_cached, mark_synced, needs_sync
 from .collector import DuplicateNoteError, collect
 from .config import Settings, SettingsError, load_settings
 from .hindsight import HindsightSubmitError, delete, get_client, submit
@@ -50,11 +51,45 @@ def _collect(notes_path: Path) -> list[tuple[_date, Path]]:
 
 def _iter_notes(notes_path: Path) -> Iterator[Note]:
     for entry_date, file in _collect(notes_path):
-        note = parse(entry_date, file)
-        if is_empty(note):
-            logger.debug("{} has no content sections, skipping", note.date)
+        yield parse(entry_date, file)
+
+
+class Outcome(Enum):
+    SUBMITTED = auto()
+    UNCHANGED = auto()
+    DEFERRED = auto()
+    EMPTY = auto()
+
+
+def _sync_one(
+    client: Any, settings: Settings, note: Note, *, limit_reached: bool = False
+) -> Outcome:
+    """Bring one note in line with the server.
+
+    The only place that decides what syncing a note means, so `sync` and `sync --date`
+    cannot drift apart. Raises HindsightSubmitError; callers decide how loud that is.
+    """
+    if is_empty(note):
+        if is_cached(note.date):
+            delete(client, settings, note.date)
+            evict(note.date)
+            logger.info("{} removed; note is now empty", note.date)
         else:
-            yield note
+            logger.debug("{} has no content sections, skipping", note.date)
+        return Outcome.EMPTY
+
+    if not needs_sync(note):
+        logger.debug("{} unchanged, skipping", note.date)
+        return Outcome.UNCHANGED
+
+    if limit_reached:
+        logger.debug("{} needs sync but limit reached, deferring", note.date)
+        return Outcome.DEFERRED
+
+    submit(client, settings, note)
+    mark_synced(note)
+    logger.info("{} synced", note.date)
+    return Outcome.SUBMITTED
 
 
 @click.group()
@@ -80,18 +115,11 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
             for entry_date, file in _collect(settings.notes_path):
                 if entry_date != target:
                     continue
-                note = parse(entry_date, file)
-                if is_empty(note):
-                    logger.info("{} has no content sections, skipping", note.date)
-                elif needs_sync(note):
-                    try:
-                        submit(client, settings, note)
-                    except HindsightSubmitError as exc:
-                        raise click.ClickException(str(exc)) from exc
-                    mark_synced(note)
-                    logger.info("{} synced", note.date)
-                else:
-                    logger.info("{} unchanged, skipping", note.date)
+                try:
+                    _sync_one(client, settings, parse(entry_date, file))
+                except HindsightSubmitError as exc:
+                    raise click.ClickException(str(exc)) from exc
+                logger.debug("deletion phase skipped for --date")
                 return
             raise click.ClickException(f"no note found for {target}")
 
@@ -99,22 +127,21 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
         submitted = 0
         failed = 0
         for note in _iter_notes(settings.notes_path):
-            vault_dates.add(note.date)
-            if needs_sync(note):
-                if limit is not None and submitted >= limit:
-                    logger.debug("{} needs sync but limit reached, deferring", note.date)
-                    continue
-                try:
-                    submit(client, settings, note)
-                except HindsightSubmitError as exc:
-                    logger.error("{}", exc)
-                    failed += 1
-                    continue
-                mark_synced(note)
-                logger.info("{} synced", note.date)
+            try:
+                outcome = _sync_one(
+                    client, settings, note,
+                    limit_reached=limit is not None and submitted >= limit,
+                )
+            except HindsightSubmitError as exc:
+                logger.error("{}", exc)
+                # Still a vault note, so it must not be treated as stale and deleted.
+                vault_dates.add(note.date)
+                failed += 1
+                continue
+            if outcome is not Outcome.EMPTY:
+                vault_dates.add(note.date)
+            if outcome is Outcome.SUBMITTED:
                 submitted += 1
-            else:
-                logger.debug("{} unchanged, skipping", note.date)
 
         stale_dates = cached_dates() - vault_dates
         if stale_dates and not vault_dates and not prune:
@@ -159,6 +186,9 @@ def status(ctx: click.Context) -> None:
     up_to_date: list[_date] = []
 
     for note in _iter_notes(settings.notes_path):
+        if is_empty(note):
+            logger.debug("{} has no content sections, skipping", note.date)
+            continue
         vault_dates.add(note.date)
         if needs_sync(note):
             pending.append(note.date)

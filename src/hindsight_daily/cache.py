@@ -28,6 +28,10 @@ def needs_sync(note: Note) -> bool:
     return cached != note.content_hash
 
 
+def is_cached(entry_date: date) -> bool:
+    return _open().get(entry_date.isoformat()) is not None
+
+
 def mark_synced(note: Note) -> None:
     _open().set(note.date.isoformat(), note.content_hash)
 
