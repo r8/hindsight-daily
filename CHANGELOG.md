@@ -51,6 +51,13 @@
   marking the note synced
 - Stop importing a private helper from `hindsight-client`, and cap the dependency below 0.6,
   since this code reads the client's operation statuses directly
+- Reject `--limit` below zero, and reject `--date` combined with `--limit`, which was silently
+  ignored
+- Always print the `stale` row in `status`, so the output shape does not depend on the data,
+  and say when `sync --date` skips the deletion phase
+- Add `sync --reconcile-remote`, which finds stale notes by diffing the server against the
+  vault instead of trusting local cache history. Use it when the cache was lost or the vault
+  is synced across machines; it assumes this vault is the only writer of `journal:` documents
 
 - Page through the document listing when cleaning up a date, so sections removed from a long note
   are no longer left behind on the server

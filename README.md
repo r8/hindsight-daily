@@ -7,7 +7,7 @@ Syncs Obsidian daily notes to [Hindsight](https://hindsight.vectorize.io) so the
 
 ## How it works
 
-Walks a configured vault directory, finds notes named `YYYY-MM-DD.md`, parses them into structured sections, and submits new or changed notes to Hindsight via its API. Unchanged notes are skipped. Deleted notes are removed from Hindsight.
+Walks a configured vault directory, finds notes named `YYYY-MM-DD.md`, parses them into structured sections, and submits new or changed notes to Hindsight via its API. Unchanged notes are skipped. Notes deleted from the vault are removed from Hindsight, as long as the local cache still records that they were synced — pass `--reconcile-remote` to diff against the server instead, which also catches notes deleted on another machine or while the cache was missing.
 
 Change detection uses a content hash (not mtime) because Obsidian plugins frequently touch mtime without changing content.
 
@@ -58,6 +58,7 @@ hindsight-daily sync             # sync new and changed notes
 hindsight-daily sync --limit 5   # sync at most 5 notes
 hindsight-daily sync --date DATE # sync just one note (no deletion phase)
 hindsight-daily sync --prune     # allow deletion even when the vault is empty
+hindsight-daily sync --reconcile-remote  # find stale notes by asking the server
 hindsight-daily forget DATE      # remove a note from server and cache
 hindsight-daily status           # show pending/up-to-date counts
 hindsight-daily -v status        # show individual note dates

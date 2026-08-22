@@ -59,7 +59,8 @@ def _base_patches(tmp_path, notes, *, needs_sync_val=True, cached=None, verbose=
 
 
 def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True, cached=None,
-             failing_dates=(), prune=False, empty_dates=(), is_cached_val=False):
+             failing_dates=(), prune=False, empty_dates=(), is_cached_val=False,
+             reconcile_remote=False, remote_dates=None):
     """Invoke sync with all external dependencies mocked."""
     submitted: list[date] = []
     deleted: list[date] = []
@@ -74,6 +75,10 @@ def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True,
                                empty_dates=empty_dates, is_cached_val=is_cached_val):
             stack.enter_context(p)
         stack.enter_context(patch("hindsight_daily.cli.submit", side_effect=fake_submit))
+        stack.enter_context(patch(
+            "hindsight_daily.cli.list_journal_dates",
+            return_value={date.fromisoformat(d) for d in remote_dates or []},
+        ))
         stack.enter_context(patch("hindsight_daily.cli.delete", side_effect=lambda _c, _s, d: deleted.append(d)))
 
         args = ["sync"]
@@ -83,6 +88,8 @@ def run_sync(tmp_path, notes, *, limit=None, date_arg=None, needs_sync_val=True,
             args += ["--date", date_arg]
         if prune:
             args.append("--prune")
+        if reconcile_remote:
+            args.append("--reconcile-remote")
         result = CliRunner().invoke(cli, args)
 
     return result, submitted, deleted
@@ -252,10 +259,10 @@ def test_status_shows_stale(tmp_path):
     assert "stale          1" in result.output
 
 
-def test_status_no_stale_line_when_clean(tmp_path):
+def test_status_always_shows_the_stale_row(tmp_path):
     notes = [make_note(date(2026, 1, 1))]
     result = run_status(tmp_path, notes, needs_sync_val=False, cached=["2026-01-01"])
-    assert "stale" not in result.output
+    assert "stale          0" in result.output
 
 
 
@@ -540,3 +547,69 @@ def test_failed_forget_reports_cleanly(tmp_path):
     assert result.exit_code != 0
     assert "deleting failed" in result.output
     assert evicted == []  # nothing was removed from the server, so keep the cache entry
+
+
+# --- argument validation ---
+
+def test_negative_limit_is_rejected(tmp_path):
+    result, submitted, deleted = run_sync(tmp_path, [make_note(date(2026, 1, 1))], limit=-1)
+    assert result.exit_code != 0
+    assert submitted == []
+    assert deleted == []
+
+
+def test_zero_limit_is_still_allowed(tmp_path):
+    result, submitted, _ = run_sync(tmp_path, [make_note(date(2026, 1, 1))], limit=0)
+    assert result.exit_code == 0
+    assert submitted == []
+
+
+def test_date_and_limit_together_are_rejected(tmp_path):
+    result, submitted, deleted = run_sync(
+        tmp_path, [make_note(date(2026, 1, 1))], date_arg="2026-01-01", limit=2
+    )
+    assert result.exit_code != 0
+    assert "--limit does not apply" in result.output
+    assert submitted == []
+
+
+def test_targeted_sync_says_it_skipped_the_deletion_phase(tmp_path):
+    notes = [make_note(date(2026, 1, 1))]
+    result, _, _ = run_sync(tmp_path, notes, date_arg="2026-01-01", cached=["2025-12-31"])
+    assert result.exit_code == 0
+    assert "skipping the deletion phase" in result.output
+
+
+# --- reconciling against the server ---
+
+def test_remote_only_date_is_not_deleted_by_default(tmp_path):
+    """Without the flag, deletion still depends purely on local cache history."""
+    notes = [make_note(date(2026, 1, 1))]
+    _, _, deleted = run_sync(tmp_path, notes, cached=["2026-01-01"], remote_dates=["2020-05-05"])
+    assert deleted == []
+
+
+def test_remote_only_date_is_deleted_when_reconciling(tmp_path):
+    notes = [make_note(date(2026, 1, 1))]
+    _, _, deleted = run_sync(
+        tmp_path, notes, cached=["2026-01-01"], remote_dates=["2026-01-01", "2020-05-05"],
+        reconcile_remote=True,
+    )
+    assert deleted == [date(2020, 5, 5)]
+
+
+def test_reconciling_does_not_delete_dates_present_in_the_vault(tmp_path):
+    notes = [make_note(date(2026, 1, 1)), make_note(date(2026, 1, 2))]
+    _, _, deleted = run_sync(
+        tmp_path, notes, cached=[], remote_dates=["2026-01-01", "2026-01-02"],
+        reconcile_remote=True,
+    )
+    assert deleted == []
+
+
+def test_reconcile_remote_rejected_with_date(tmp_path):
+    result, _, _ = run_sync(
+        tmp_path, [make_note(date(2026, 1, 1))], date_arg="2026-01-01", reconcile_remote=True
+    )
+    assert result.exit_code != 0
+    assert "--reconcile-remote does not apply" in result.output

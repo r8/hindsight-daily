@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 import warnings
 from collections.abc import Coroutine
@@ -13,6 +14,7 @@ from .parser import Note, to_retain_items
 
 _MAX_POLL_INTERVAL = 15.0
 _DOC_PAGE_SIZE = 100
+_DOC_ID_RE = re.compile(r"journal:(\d{4}-\d{2}-\d{2})_\d+")
 
 _T = TypeVar("_T")
 
@@ -211,6 +213,33 @@ def submit(client: _Hindsight, settings: Settings, note: Note) -> None:
         raise HindsightSubmitError(
             f"{label}: removing obsolete documents failed: {_describe(exc)}"
         ) from exc
+
+
+def list_journal_dates(client: _Hindsight, settings: Settings) -> set[date]:
+    """Every date the server still holds journal documents for.
+
+    Reconciling against this rather than local cache history is the only way to notice a
+    note deleted from the vault on another machine, or while the cache was missing.
+    """
+    dates: set[date] = set()
+    offset = 0
+    try:
+        while True:
+            result = _run_sync(client.documents.list_documents(
+                bank_id=settings.bank_id, q="journal:", limit=_DOC_PAGE_SIZE, offset=offset,
+            ))
+            for item in result.items:
+                if match := _DOC_ID_RE.fullmatch(item["id"]):
+                    try:
+                        dates.add(date.fromisoformat(match.group(1)))
+                    except ValueError:
+                        continue
+            offset += len(result.items)
+            if not result.items or offset >= result.total:
+                break
+    except Exception as exc:
+        raise HindsightError(f"listing journal documents failed: {_describe(exc)}") from exc
+    return dates
 
 
 def delete(client: _Hindsight, settings: Settings, entry_date: date) -> None:

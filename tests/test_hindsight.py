@@ -14,6 +14,7 @@ from hindsight_daily.hindsight import (
     HindsightError,
     HindsightSubmitError,
     delete,
+    list_journal_dates,
     submit,
 )
 from hindsight_daily.parser import Note
@@ -453,3 +454,32 @@ def test_run_sync_replaces_a_closed_loop():
         asyncio.get_event_loop_policy().get_event_loop().close()
 
     assert hindsight._run_sync(answer()) == "ok"
+
+
+# --- listing journal dates on the server ---
+
+def test_list_journal_dates_pages_and_parses_ids():
+    doc_ids = [f"journal:2026-01-{d:02d}_001" for d in range(1, 26)]
+    doc_ids += ["journal:2026-01-01_002", "notes:2026-01-01_001", "journal:not-a-date_001"]
+    client = make_client(retain_response(), [], doc_ids, server_page_size=10)
+
+    with patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
+        dates = list_journal_dates(client, make_settings())
+
+    assert dates == {date(2026, 1, d) for d in range(1, 26)}
+
+
+def test_list_journal_dates_ignores_impossible_dates():
+    client = make_client(retain_response(), [], ["journal:2026-01-99_001"])
+
+    with patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
+        assert list_journal_dates(client, make_settings()) == set()
+
+
+def test_list_journal_dates_failure_is_reported():
+    client = make_client(retain_response(), [])
+    client.documents.list_documents.side_effect = TimeoutError("timed out")
+
+    with patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
+        with pytest.raises(HindsightError, match="listing journal documents failed"):
+            list_journal_dates(client, make_settings())

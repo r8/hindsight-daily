@@ -10,7 +10,7 @@ from loguru import logger
 from .cache import cached_dates, close_cache, evict, is_cached, mark_synced, needs_sync
 from .collector import DuplicateNoteError, collect
 from .config import Settings, SettingsError, load_settings
-from .hindsight import HindsightError, delete, get_client, submit
+from .hindsight import HindsightError, delete, get_client, list_journal_dates, submit
 from .parser import Note, is_empty, parse
 
 
@@ -100,14 +100,31 @@ def cli(ctx: click.Context, verbose: bool | None) -> None:
 
 
 @cli.command()
-@click.option("--limit", type=int, default=None, help="Maximum number of notes to submit in one run.")
+@click.option("--limit", type=click.IntRange(min=0), default=None,
+              help="Maximum number of notes to submit in one run.")
 @click.option("--date", "target", type=IsoDate(), metavar="DATE", default=None,
               help="Sync only the note for DATE (YYYY-MM-DD); skips the deletion phase.")
 @click.option("--prune", is_flag=True,
               help="Allow the deletion phase to run even when the vault yields no notes at all.")
+@click.option("--reconcile-remote", is_flag=True,
+              help="Also treat dates the server holds but the vault does not as stale, instead of "
+                   "trusting local cache history. Only safe when this vault is the sole writer of "
+                   "journal documents to the bank.")
 @click.pass_context
-def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: bool) -> None:
+def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: bool,
+         reconcile_remote: bool) -> None:
     """Submit new and changed notes to Hindsight, remove notes deleted from the vault."""
+    if target is not None:
+        conflicting = [
+            name for name, given in
+            (("--limit", limit is not None), ("--prune", prune), ("--reconcile-remote", reconcile_remote))
+            if given
+        ]
+        if conflicting:
+            raise click.UsageError(
+                f"{', '.join(conflicting)} does not apply to --date, which syncs a single note "
+                f"and skips the deletion phase"
+            )
     settings = _settings(ctx)
 
     with get_client(settings) as client:
@@ -119,7 +136,7 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
                     _sync_one(client, settings, parse(entry_date, file))
                 except HindsightError as exc:
                     raise click.ClickException(str(exc)) from exc
-                logger.debug("deletion phase skipped for --date")
+                logger.info("--date given, skipping the deletion phase")
                 return
             raise click.ClickException(f"no note found for {target}")
 
@@ -144,6 +161,12 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
                 submitted += 1
 
         stale_dates = cached_dates() - vault_dates
+        if reconcile_remote:
+            try:
+                stale_dates |= list_journal_dates(client, settings) - vault_dates
+            except HindsightError as exc:
+                logger.error("{}", exc)
+                failed += 1
         if stale_dates and not vault_dates and not prune:
             # An unmounted vault or a mistyped path looks exactly like "every note was deleted".
             raise click.ClickException(
@@ -213,8 +236,7 @@ def status(ctx: click.Context) -> None:
     if settings.verbose:
         for d in pending:
             click.echo(f"  {d}")
-    if stale:
-        click.echo(f"stale       {len(stale):>4}  (will be deleted on next sync)")
-        if settings.verbose:
-            for d in stale:
-                click.echo(f"  {d}")
+    click.echo(f"stale       {len(stale):>4}  (will be deleted on next sync)")
+    if settings.verbose:
+        for d in stale:
+            click.echo(f"  {d}")
