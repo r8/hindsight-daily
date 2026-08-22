@@ -10,7 +10,7 @@ from loguru import logger
 from .cache import cached_dates, close_cache, evict, is_cached, mark_synced, needs_sync
 from .collector import DuplicateNoteError, collect
 from .config import Settings, SettingsError, load_settings
-from .hindsight import HindsightSubmitError, delete, get_client, submit
+from .hindsight import HindsightError, delete, get_client, submit
 from .parser import Note, is_empty, parse
 
 
@@ -117,7 +117,7 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
                     continue
                 try:
                     _sync_one(client, settings, parse(entry_date, file))
-                except HindsightSubmitError as exc:
+                except HindsightError as exc:
                     raise click.ClickException(str(exc)) from exc
                 logger.debug("deletion phase skipped for --date")
                 return
@@ -132,7 +132,7 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
                     client, settings, note,
                     limit_reached=limit is not None and submitted >= limit,
                 )
-            except HindsightSubmitError as exc:
+            except HindsightError as exc:
                 logger.error("{}", exc)
                 # Still a vault note, so it must not be treated as stale and deleted.
                 vault_dates.add(note.date)
@@ -152,7 +152,12 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
             )
 
         for stale in sorted(stale_dates):
-            delete(client, settings, stale)
+            try:
+                delete(client, settings, stale)
+            except HindsightError as exc:
+                logger.error("{}", exc)
+                failed += 1
+                continue
             evict(stale)
             logger.info("{} deleted (note removed from vault)", stale)
 
@@ -170,7 +175,10 @@ def forget(ctx: click.Context, target: _date) -> None:
         logger.warning("{} still exists in vault; next `sync` will recreate it", target)
 
     with get_client(settings) as client:
-        delete(client, settings, target)
+        try:
+            delete(client, settings, target)
+        except HindsightError as exc:
+            raise click.ClickException(str(exc)) from exc
         evict(target)
     logger.info("{} forgotten", target)
 

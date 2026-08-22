@@ -37,6 +37,20 @@
   from the server and reporting success
 - Strip Obsidian heading (`#`) and block (`^`) anchors from wikilinks before extracting
   entities, so `[[Project#Meeting notes]]` and `[[Project]]` no longer become two entities
+- Report failures from the deletion phase and from `forget` as plain errors rather than
+  tracebacks, and keep the cache entry when a deletion did not actually happen
+- Distinguish listing, cleanup and retain failures instead of labelling all three
+  `retain request failed`, and show errors as `TimeoutError: timed out` rather than
+  a bare `TimeoutError()`
+- Confirm the sections are on the server when a retain operation stops being tracked. The
+  server purges completed operations, but a restart that dropped an in-flight one looked
+  identical, and the note would have been marked synced without ever being ingested
+- Check operation status before sleeping, so a note the server ingests quickly no longer costs
+  a full `retain_poll_interval` before anyone looks at it
+- Treat an unrecognized sub-batch status as a failure instead of logging it as progress and
+  marking the note synced
+- Stop importing a private helper from `hindsight-client`, and cap the dependency below 0.6,
+  since this code reads the client's operation statuses directly
 
 - Page through the document listing when cleaning up a date, so sections removed from a long note
   are no longer left behind on the server

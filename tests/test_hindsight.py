@@ -1,3 +1,5 @@
+import asyncio
+import warnings
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -5,8 +7,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hindsight_daily import hindsight
 from hindsight_daily.config import Settings
-from hindsight_daily.hindsight import HindsightSubmitError, delete, submit
+from hindsight_daily.hindsight import (
+    HindsightDeleteError,
+    HindsightError,
+    HindsightSubmitError,
+    delete,
+    submit,
+)
 from hindsight_daily.parser import Note
 
 
@@ -78,7 +87,7 @@ def make_settings(*, timeout: float = 60.0) -> Settings:
 
 def run_submit(client: MagicMock, note: Note | None = None, *, timeout: float = 60.0):
     with patch("hindsight_daily.hindsight.time.sleep"), \
-            patch("hindsight_daily.hindsight._run_async", side_effect=lambda coro: coro):
+            patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
         submit(client, make_settings(timeout=timeout), note or make_note())
 
 
@@ -159,7 +168,7 @@ def test_delete_removes_documents_from_every_page():
     doc_ids = [f"journal:2026-01-02_{i:03d}" for i in range(1, 121)]
     client = make_client(retain_response(), [], doc_ids, server_page_size=100)
 
-    with patch("hindsight_daily.hindsight._run_async", side_effect=lambda coro: coro):
+    with patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
         delete(client, make_settings(), date(2026, 1, 2))
 
     deleted = {call.args[1] for call in client.documents.delete_document.call_args_list}
@@ -240,11 +249,33 @@ def test_single_operation_id_is_awaited():
     client.operations.get_operation_status.assert_called_once_with("bank", "op-9")
 
 
-def test_not_found_treated_as_completed():
-    client = make_client(retain_response("op-1"), [op("not_found")])
+def test_not_found_treated_as_completed_when_documents_are_present():
+    client = make_client(
+        retain_response("op-1"), [op("not_found")],
+        existing_doc_ids=["journal:2026-01-02_001"],
+    )
     run_submit(client)
 
     assert client.operations.get_operation_status.call_count == 1
+
+
+def test_not_found_with_missing_documents_fails():
+    """A server restart that drops an in-flight operation looks just like completion."""
+    client = make_client(retain_response("op-1"), [op("not_found")], existing_doc_ids=[])
+
+    with pytest.raises(HindsightSubmitError, match="no longer tracked"):
+        run_submit(client)
+
+
+def test_not_found_confirms_documents_only_once():
+    client = make_client(
+        retain_response("op-1", "op-2"), [op("not_found"), op("not_found")],
+        existing_doc_ids=["journal:2026-01-02_001"],
+    )
+    run_submit(client)
+
+    # one confirming listing, plus the obsolete-document listing after the wait
+    assert client.documents.list_documents.call_count == 2
 
 
 def test_failed_operation_raises_with_server_message():
@@ -279,3 +310,146 @@ def test_deadline_exceeded_raises_and_names_pending_operations():
     with patch("hindsight_daily.hindsight.time.monotonic", side_effect=lambda: next(clock)):
         with pytest.raises(HindsightSubmitError, match="op-1"):
             run_submit(client, timeout=10.0)
+
+
+# --- error normalization ---
+
+def test_delete_failure_becomes_a_delete_error():
+    client = make_client(retain_response(), [], ["journal:2026-01-02_001"])
+    client.documents.delete_document.side_effect = TimeoutError("timed out")
+
+    with patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
+        with pytest.raises(HindsightDeleteError, match="deleting journal:2026-01-02_001 failed"):
+            delete(client, make_settings(), date(2026, 1, 2))
+
+
+def test_delete_listing_failure_becomes_a_delete_error():
+    client = make_client(retain_response(), [])
+    client.documents.list_documents.side_effect = TimeoutError("timed out")
+
+    with patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
+        with pytest.raises(HindsightDeleteError, match="listing documents failed"):
+            delete(client, make_settings(), date(2026, 1, 2))
+
+
+def test_listing_failure_during_cleanup_is_labelled():
+    client = make_client(retain_response("op-1"), [op("completed")], ["journal:2026-01-02_001"])
+    client.documents.list_documents.side_effect = TimeoutError("timed out")
+
+    with pytest.raises(HindsightSubmitError, match="listing documents failed"):
+        run_submit(client)
+
+
+def test_error_messages_name_the_exception_readably():
+    client = make_client(retain_response("op-1"), [])
+    client.retain_batch.side_effect = TimeoutError("timed out")
+
+    with pytest.raises(HindsightSubmitError) as exc_info:
+        run_submit(client)
+
+    assert "TimeoutError: timed out" in str(exc_info.value)
+    assert "TimeoutError()" not in str(exc_info.value)
+
+
+def test_delete_and_submit_errors_share_a_base():
+    assert issubclass(HindsightSubmitError, HindsightError)
+    assert issubclass(HindsightDeleteError, HindsightError)
+
+
+def test_completed_operation_costs_no_sleep():
+    """Polling before sleeping: a note the server finished inline should not wait an interval."""
+    client = make_client(retain_response("op-1"), [op("completed")])
+
+    with patch("hindsight_daily.hindsight.time.sleep") as sleep, \
+            patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
+        submit(client, make_settings(), make_note())
+
+    sleep.assert_not_called()
+
+
+def test_pending_operation_sleeps_once_per_round():
+    client = make_client(retain_response("op-1"), [op("pending"), op("completed")])
+
+    with patch("hindsight_daily.hindsight.time.sleep") as sleep, \
+            patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
+        submit(client, make_settings(), make_note())
+
+    assert sleep.call_count == 1
+
+
+def test_cancelled_child_operation_raises():
+    client = make_client(
+        retain_response("op-1"),
+        [op("pending", children=[child("cancelled", error_message="operator stopped it")])],
+    )
+
+    with pytest.raises(HindsightSubmitError, match="cancelled"):
+        run_submit(client)
+
+
+def test_unknown_child_status_is_not_treated_as_success():
+    """ChildOperationStatus.status is an unvalidated string, unlike the parent status."""
+    client = make_client(
+        retain_response("op-1"), [op("pending", children=[child("quantum_superposition")])],
+    )
+
+    with pytest.raises(HindsightSubmitError, match="unknown status: quantum_superposition"):
+        run_submit(client)
+
+
+def test_completed_child_operation_is_fine():
+    client = make_client(
+        retain_response("op-1"), [op("completed", children=[child("completed")])],
+    )
+    run_submit(client)
+
+    assert client.retain_batch.call_count == 1
+
+
+# --- the vendored async bridge ---
+
+def test_run_sync_executes_a_coroutine():
+    async def answer():
+        return 42
+
+    assert hindsight._run_sync(answer()) == 42
+
+
+def test_run_sync_reuses_one_loop_across_calls():
+    """The client's aiohttp session is bound to the first loop that issued a request."""
+    seen = []
+
+    async def record():
+        seen.append(asyncio.get_running_loop())
+
+    hindsight._run_sync(record())
+    hindsight._run_sync(record())
+
+    assert seen[0] is seen[1]
+    assert not seen[0].is_closed()
+
+
+def test_run_sync_uses_the_loop_the_client_would_pick():
+    """The library bridges `retain_batch` itself via get_event_loop(); we must match it."""
+    seen = []
+
+    async def record():
+        seen.append(asyncio.get_running_loop())
+
+    hindsight._run_sync(record())
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        assert seen[0] is asyncio.get_event_loop_policy().get_event_loop()
+
+
+def test_run_sync_replaces_a_closed_loop():
+    async def answer():
+        return "ok"
+
+    hindsight._run_sync(answer())
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        asyncio.get_event_loop_policy().get_event_loop().close()
+
+    assert hindsight._run_sync(answer()) == "ok"

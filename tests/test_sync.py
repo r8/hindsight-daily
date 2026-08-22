@@ -8,7 +8,7 @@ from click.testing import CliRunner
 from hindsight_daily.cli import cli
 from hindsight_daily.collector import DuplicateNoteError
 from hindsight_daily.config import Settings, SettingsError
-from hindsight_daily.hindsight import HindsightSubmitError
+from hindsight_daily.hindsight import HindsightDeleteError, HindsightSubmitError
 from hindsight_daily.parser import Note
 
 
@@ -498,3 +498,45 @@ def test_empty_note_is_not_counted_as_a_vault_date(tmp_path):
     # deleted once by _sync_one; the stale phase must not see it as a vault date and skip it,
     # nor delete 2026-01-16, which is present and non-empty
     assert deleted == [target]
+
+
+# --- error handling around deletion ---
+
+def test_failed_stale_deletion_reports_cleanly(tmp_path):
+    notes = [make_note(date(2026, 1, 1))]
+    with ExitStack() as stack:
+        for p in _base_patches(tmp_path, notes, cached=["2026-01-01", "2025-12-31"]):
+            stack.enter_context(p)
+        stack.enter_context(patch("hindsight_daily.cli.submit"))
+        stack.enter_context(patch(
+            "hindsight_daily.cli.delete",
+            side_effect=HindsightDeleteError("2025-12-31: listing documents failed"),
+        ))
+        result = CliRunner().invoke(cli, ["sync"])
+
+    assert result.exit_code != 0
+    assert "listing documents failed" in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def test_failed_forget_reports_cleanly(tmp_path):
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch("hindsight_daily.cli.load_settings", return_value=make_settings(tmp_path))
+        )
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        stack.enter_context(patch("hindsight_daily.cli.get_client", return_value=mock_client))
+        stack.enter_context(patch("hindsight_daily.cli.collect", return_value=[]))
+        stack.enter_context(patch(
+            "hindsight_daily.cli.delete",
+            side_effect=HindsightDeleteError("2026-01-15: deleting failed"),
+        ))
+        evicted: list[date] = []
+        stack.enter_context(patch("hindsight_daily.cli.evict", side_effect=evicted.append))
+        result = CliRunner().invoke(cli, ["forget", "2026-01-15"])
+
+    assert result.exit_code != 0
+    assert "deleting failed" in result.output
+    assert evicted == []  # nothing was removed from the server, so keep the cache entry
