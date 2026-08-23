@@ -4,7 +4,7 @@ import time
 import warnings
 from collections.abc import Coroutine
 from datetime import date
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from hindsight_client import Hindsight as _Hindsight
 from loguru import logger
@@ -193,7 +193,12 @@ def submit(client: _Hindsight, settings: Settings, note: Note) -> None:
     try:
         # Retained asynchronously: big notes take the server minutes to ingest, far longer
         # than any request timeout, so we submit and then poll the operations to completion.
-        response = client.retain_batch(bank_id=bank_id, items=items, retain_async=True)
+        response = client.retain_batch(
+            bank_id=bank_id,
+            # A TypedDict is not a dict[str, Any] to mypy, but it is one at the wire boundary.
+            items=cast(list[dict[str, Any]], items),
+            retain_async=True,
+        )
     except Exception as exc:
         raise HindsightSubmitError(f"{label}: retain request failed: {_describe(exc)}") from exc
     _wait_for_operations(client, settings, _operation_ids(response), label, len(items))

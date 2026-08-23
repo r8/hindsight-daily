@@ -1,5 +1,5 @@
+import datetime
 from collections.abc import Iterator
-from datetime import date as _date
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -17,11 +17,11 @@ from .parser import Note, is_empty, parse
 class IsoDate(click.ParamType):
     name = "date"
 
-    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> _date:
-        if isinstance(value, _date):
+    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> datetime.date:
+        if isinstance(value, datetime.date):
             return value
         try:
-            return _date.fromisoformat(value)
+            return datetime.date.fromisoformat(value)
         except ValueError:
             self.fail(f"expected YYYY-MM-DD, got {value!r}", param, ctx)
 
@@ -42,7 +42,7 @@ def _settings(ctx: click.Context) -> Settings:
     return settings
 
 
-def _collect(notes_path: Path) -> list[tuple[_date, Path]]:
+def _collect(notes_path: Path) -> list[tuple[datetime.date, Path]]:
     try:
         return collect(notes_path)
     except DuplicateNoteError as exc:
@@ -111,7 +111,7 @@ def cli(ctx: click.Context, verbose: bool | None) -> None:
                    "trusting local cache history. Only safe when this vault is the sole writer of "
                    "journal documents to the bank.")
 @click.pass_context
-def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: bool,
+def sync(ctx: click.Context, limit: int | None, target: datetime.date | None, prune: bool,
          reconcile_remote: bool) -> None:
     """Submit new and changed notes to Hindsight, remove notes deleted from the vault."""
     if target is not None:
@@ -140,7 +140,7 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
                 return
             raise click.ClickException(f"no note found for {target}")
 
-        vault_dates: set[_date] = set()
+        vault_dates: set[datetime.date] = set()
         submitted = 0
         failed = 0
         for note in _iter_notes(settings.notes_path):
@@ -191,7 +191,7 @@ def sync(ctx: click.Context, limit: int | None, target: _date | None, prune: boo
 @cli.command()
 @click.argument("target", metavar="DATE", type=IsoDate())
 @click.pass_context
-def forget(ctx: click.Context, target: _date) -> None:
+def forget(ctx: click.Context, target: datetime.date) -> None:
     """Remove a note for DATE (YYYY-MM-DD) from the Hindsight server and local cache."""
     settings = _settings(ctx)
     if any(d == target for d, _ in _collect(settings.notes_path)):
@@ -212,9 +212,9 @@ def status(ctx: click.Context) -> None:
     """Show counts of up-to-date, pending, and stale notes."""
     settings = _settings(ctx)
 
-    vault_dates: set[_date] = set()
-    pending: list[_date] = []
-    up_to_date: list[_date] = []
+    vault_dates: set[datetime.date] = set()
+    pending: list[datetime.date] = []
+    up_to_date: list[datetime.date] = []
 
     for note in _iter_notes(settings.notes_path):
         if is_empty(note):

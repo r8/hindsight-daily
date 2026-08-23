@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- `sync --date DATE` to sync a single note, skipping the deletion phase
+- `sync --prune` to allow the deletion phase to run when the vault yields no notes at all
+- `sync --reconcile-remote` to find stale notes by diffing the server against the vault instead
+  of trusting local cache history. Use it when the cache was lost or the vault is synced across
+  machines; it assumes this vault is the only writer of `journal:` documents
+
 ### Changed
 
 - Upgrading from 0.2.0: delete the cache directory to re-submit notes with the improved parsing.
@@ -55,10 +63,8 @@
   ignored
 - Always print the `stale` row in `status`, so the output shape does not depend on the data,
   and say when `sync --date` skips the deletion phase
-- Add `sync --reconcile-remote`, which finds stale notes by diffing the server against the
-  vault instead of trusting local cache history. Use it when the cache was lost or the vault
-  is synced across machines; it assumes this vault is the only writer of `journal:` documents
-
+- Copy the metadata and tag collections into each document rather than sharing one object
+  across every section of a note
 - Page through the document listing when cleaning up a date, so sections removed from a long note
   are no longer left behind on the server
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import frontmatter
 
@@ -17,10 +17,22 @@ WIKILINK_RE = re.compile(r'\[\[([^|\]]+?)(?:\s*\|[^\]]*)?\]\]')
 ANCHOR_RE = re.compile(r'[#^]')
 
 
+class RetainItem(TypedDict):
+    """One Hindsight document. Mirrors the client's retain payload contract."""
+    content: str
+    document_id: str
+    timestamp: datetime
+    context: str
+    metadata: dict[str, str]
+    tags: list[str]
+    entities: list[dict[str, str]]
+    update_mode: str
+
+
 @dataclass
 class Note:
     date: date
-    frontmatter: dict
+    frontmatter: dict[str, Any]
     content: str
     content_hash: str
 
@@ -57,7 +69,7 @@ def _section_to_markdown(s: Section) -> str:
     return f"## {s.title}\n\n{body}" if s.title else body
 
 
-def to_retain_items(note: Note) -> list[dict[str, Any]]:
+def to_retain_items(note: Note) -> list[RetainItem]:
     metadata = {
         k: str(v)
         for k, v in note.frontmatter.items()
@@ -70,7 +82,7 @@ def to_retain_items(note: Note) -> list[dict[str, Any]]:
     timestamp = datetime.combine(note.date, time.min)
     shared_metadata = {**metadata, "author": "user", "source": "daily-journal"}
 
-    items = []
+    items: list[RetainItem] = []
     for idx, s in enumerate((s for s in parse_sections(note.content) if s.blocks), start=1):
         title_entities = _extract_canonical_names(s.title) if s.title else []
         context = (
@@ -82,14 +94,15 @@ def to_retain_items(note: Note) -> list[dict[str, Any]]:
             "narrator": _NARRATOR,
             "sections": [{"date": str(note.date), "author": "user", "content": _section_to_markdown(s)}],
         }, ensure_ascii=False)
-        items.append({
-            "content": content,
-            "document_id": f"journal:{note.date}_{idx:03d}",
-            "timestamp": timestamp,
-            "context": context,
-            "metadata": shared_metadata,
-            "tags": tags,
-            "entities": [{"text": e} for e in title_entities],
-            "update_mode": "replace",
-        })
+        items.append(RetainItem(
+            content=content,
+            document_id=f"journal:{note.date}_{idx:03d}",
+            timestamp=timestamp,
+            context=context,
+            # Copied per item: sharing one dict would let a caller mutate every document at once.
+            metadata=dict(shared_metadata),
+            tags=list(tags),
+            entities=[{"text": e} for e in title_entities],
+            update_mode="replace",
+        ))
     return items
