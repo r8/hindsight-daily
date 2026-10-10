@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-10
+
 ### Added
 
 - `observation_scopes` setting, sent with every retained section to choose how Hindsight scopes
