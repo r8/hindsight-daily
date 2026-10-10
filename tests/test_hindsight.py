@@ -74,7 +74,7 @@ def make_client(
     return client
 
 
-def make_settings(*, timeout: float = 60.0) -> Settings:
+def make_settings(*, timeout: float = 60.0, observation_scopes=None) -> Settings:
     return Settings(
         bank_id="bank",
         api_key="key",
@@ -83,13 +83,14 @@ def make_settings(*, timeout: float = 60.0) -> Settings:
         verbose=False,
         retain_timeout=timeout,
         retain_poll_interval=0.0,
+        observation_scopes=observation_scopes,
     )
 
 
-def run_submit(client: MagicMock, note: Note | None = None, *, timeout: float = 60.0):
+def run_submit(client: MagicMock, note: Note | None = None, *, timeout: float = 60.0, observation_scopes=None):
     with patch("hindsight_daily.hindsight.time.sleep"), \
             patch("hindsight_daily.hindsight._run_sync", side_effect=lambda coro: coro):
-        submit(client, make_settings(timeout=timeout), note or make_note())
+        submit(client, make_settings(timeout=timeout, observation_scopes=observation_scopes), note or make_note())
 
 
 # --- submission ---
@@ -103,6 +104,21 @@ def test_submits_asynchronously_with_all_items():
     assert kwargs["bank_id"] == "bank"
     assert [item["document_id"] for item in kwargs["items"]] == ["journal:2026-01-02_001"]
 
+
+
+def test_configured_observation_scopes_reach_every_item():
+    client = make_client(retain_response("op-1"), [op("completed")])
+    run_submit(client, make_note("## A\n\nOne\n\n## B\n\nTwo"), observation_scopes="shared")
+
+    items = client.retain_batch.call_args.kwargs["items"]
+    assert [item["observation_scopes"] for item in items] == ["shared", "shared"]
+
+
+def test_observation_scopes_not_sent_when_unset():
+    client = make_client(retain_response("op-1"), [op("completed")])
+    run_submit(client)
+
+    assert all("observation_scopes" not in item for item in client.retain_batch.call_args.kwargs["items"])
 
 def test_obsolete_documents_deleted_after_retain_completes():
     client = make_client(
@@ -285,6 +301,27 @@ def test_failed_operation_raises_with_server_message():
     with pytest.raises(HindsightSubmitError, match="llm exploded"):
         run_submit(client)
 
+
+
+def test_processing_operation_is_still_awaited():
+    client = make_client(retain_response("op-1"), [op("processing"), op("completed")])
+    run_submit(client)
+
+    assert client.operations.get_operation_status.call_count == 2
+
+
+def test_cancelled_operation_raises():
+    client = make_client(retain_response("op-1"), [op("cancelled", error_message="operator stopped it")])
+
+    with pytest.raises(HindsightSubmitError, match="op-1 cancelled: operator stopped it"):
+        run_submit(client)
+
+
+def test_unknown_operation_status_is_not_treated_as_success():
+    client = make_client(retain_response("op-1"), [op("quantum_superposition")])
+
+    with pytest.raises(HindsightSubmitError, match="unknown status: quantum_superposition"):
+        run_submit(client)
 
 def test_failed_child_operation_raises():
     client = make_client(

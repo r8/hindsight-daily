@@ -279,3 +279,32 @@ def test_distinct_entities_are_still_distinct(tmp_path):
     p = write_note(tmp_path / "note.md", "## [[Alpha#x]] and [[Beta]]\n\nBody.")
     entities = to_retain_items(parse(date(2026, 1, 15), p))[0]["entities"]
     assert entities == [{"text": "Alpha"}, {"text": "Beta"}]
+
+
+# --- observation scopes ---
+
+_TWO_SECTIONS = "## Morning\n\nDrank coffee.\n\n## Evening\n\nRead a book."
+
+
+def test_observation_scopes_absent_by_default(tmp_path):
+    items = to_retain_items(_note_with_content(tmp_path, body=_TWO_SECTIONS))
+    assert all("observation_scopes" not in item for item in items)
+
+
+def test_observation_scopes_keyword_on_every_item(tmp_path):
+    items = to_retain_items(_note_with_content(tmp_path, body=_TWO_SECTIONS), observation_scopes="shared")
+    assert [item["observation_scopes"] for item in items] == ["shared", "shared"]
+
+
+def test_observation_scopes_do_not_change_tags(tmp_path):
+    note = _note_with_content(tmp_path, frontmatter="---\ntags: [work]\n---\n")
+    assert to_retain_items(note, observation_scopes="shared")[0]["tags"] == ["work"]
+
+
+def test_observation_scope_lists_copied_per_item(tmp_path):
+    scopes = [["work"], []]
+    items = to_retain_items(_note_with_content(tmp_path, body=_TWO_SECTIONS), observation_scopes=scopes)
+    assert items[0]["observation_scopes"] == [["work"], []]
+    items[0]["observation_scopes"][0].append("mutated")  # type: ignore[union-attr]
+    assert items[1]["observation_scopes"] == [["work"], []]
+    assert scopes == [["work"], []]

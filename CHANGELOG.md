@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- `observation_scopes` setting, sent with every retained section to choose how Hindsight scopes
+  observation consolidation. Set it to `shared` so notes with frontmatter tags update the same
+  observations as untagged notes and other clients writing to the bank. Accepts `combined`,
+  `per_tag`, `all_combinations`, `shared`, or a list of tag lists, and is validated at startup.
+  Unset by default, in which case nothing is sent. Changing it does not resubmit notes that were
+  already synced; delete the cache directory to do that
+
+### Changed
+
+- Require `hindsight-client` 0.5.6 or later (still below 0.6)
+
+### Fixed
+
+- Keep waiting on a retain operation the server reports as `processing`, fail on `cancelled`, and
+  treat any other unrecognized operation status as a failure. Previously anything other than
+  `pending`, `failed` or `not_found` counted as finished, so with hindsight-client 0.5.6 a
+  cancelled or still-running ingestion would have marked the note synced
+
 ## [0.3.0] - 2026-08-31
 
 ### Added

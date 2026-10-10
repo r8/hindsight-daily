@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 import frontmatter
 
+from .config import ObservationScopes
 from .markdown import Section, format_section, parse_sections
 
 _NARRATOR = "The human user who owns this journal. All first-person statements refer to the user, not any AI agent."
@@ -27,6 +28,8 @@ class RetainItem(TypedDict):
     tags: list[str]
     entities: list[dict[str, str]]
     update_mode: str
+    # Absent unless configured, so the server applies its own default.
+    observation_scopes: NotRequired[ObservationScopes]
 
 
 @dataclass
@@ -69,7 +72,7 @@ def _section_to_markdown(s: Section) -> str:
     return f"## {s.title}\n\n{body}" if s.title else body
 
 
-def to_retain_items(note: Note) -> list[RetainItem]:
+def to_retain_items(note: Note, *, observation_scopes: ObservationScopes | None = None) -> list[RetainItem]:
     metadata = {
         k: str(v)
         for k, v in note.frontmatter.items()
@@ -105,4 +108,8 @@ def to_retain_items(note: Note) -> list[RetainItem]:
             entities=[{"text": e} for e in title_entities],
             update_mode="replace",
         ))
+        if observation_scopes is not None:
+            items[-1]["observation_scopes"] = (
+                observation_scopes if isinstance(observation_scopes, str) else [list(s) for s in observation_scopes]
+            )
     return items

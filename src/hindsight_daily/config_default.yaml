@@ -5,3 +5,4 @@ api_url:                    # required
 daily_notes_path:           # required
 retain_timeout: 1800
 retain_poll_interval: 3
+observation_scopes:         # optional, e.g. shared

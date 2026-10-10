@@ -160,7 +160,7 @@ def test_missing_vault_aborts_without_deleting(vault, real_cache):
     config.set({
         "verbose": False, "bank_id": "bank", "api_key": "key",
         "api_url": "https://hindsight.example", "daily_notes_path": str(gone),
-        "retain_timeout": 60, "retain_poll_interval": 0,
+        "retain_timeout": 60, "retain_poll_interval": 0, "observation_scopes": None,
     })
 
     with patch("hindsight_daily.config._configuration", return_value=config), \

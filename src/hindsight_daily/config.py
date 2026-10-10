@@ -4,6 +4,12 @@ from pathlib import Path
 
 import confuse
 
+# Consolidation scope keywords the Hindsight server understands. The client forwards any string,
+# so a typo here would only surface as a server-side rejection of every retain.
+OBSERVATION_SCOPE_KEYWORDS = ("combined", "per_tag", "all_combinations", "shared")
+
+type ObservationScopes = str | list[list[str]]
+
 
 class SettingsError(Exception):
     """Raised when the configuration is missing, malformed, or points somewhere unusable."""
@@ -18,6 +24,7 @@ class Settings:
     verbose: bool
     retain_timeout: float
     retain_poll_interval: float
+    observation_scopes: ObservationScopes | None = None
 
 
 @functools.cache
@@ -42,6 +49,24 @@ def _required(config: confuse.Configuration, key: str) -> str:
     return str(value)
 
 
+def _observation_scopes(value: object) -> ObservationScopes | None:
+    """A scope keyword or a non-empty list of tag lists; unset means the server default."""
+    if value is None:
+        return None
+    if isinstance(value, str) and value in OBSERVATION_SCOPE_KEYWORDS:
+        return value
+    if (
+        isinstance(value, list)
+        and value
+        and all(isinstance(scope, list) and all(isinstance(tag, str) for tag in scope) for scope in value)
+    ):
+        return [list(scope) for scope in value]
+    raise SettingsError(
+        f"observation_scopes must be one of {', '.join(OBSERVATION_SCOPE_KEYWORDS)} "
+        f"or a list of tag lists, got {value!r} — edit {config_path()}"
+    )
+
+
 def load_settings(*, verbose_override: bool | None = None) -> Settings:
     """Read and validate the configuration, reporting problems in terms the user can act on."""
     try:
@@ -55,6 +80,7 @@ def load_settings(*, verbose_override: bool | None = None) -> Settings:
         verbose = config["verbose"].get(bool) if verbose_override is None else verbose_override
         retain_timeout = config["retain_timeout"].get(float)
         retain_poll_interval = config["retain_poll_interval"].get(float)
+        observation_scopes = _observation_scopes(config["observation_scopes"].get())
     except confuse.ConfigError as exc:
         message = str(exc)
         path = str(config_path())
@@ -72,4 +98,5 @@ def load_settings(*, verbose_override: bool | None = None) -> Settings:
         verbose=verbose,
         retain_timeout=retain_timeout,
         retain_poll_interval=retain_poll_interval,
+        observation_scopes=observation_scopes,
     )

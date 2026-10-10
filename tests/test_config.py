@@ -18,6 +18,7 @@ def fake_configuration(tmp_path, **overrides):
         "daily_notes_path": str(tmp_path),
         "retain_timeout": 1800,
         "retain_poll_interval": 3,
+        "observation_scopes": None,
     }
     values.update(overrides)
     config = confuse.Configuration("hindsight-daily-test", read=False)
@@ -82,6 +83,35 @@ def test_numeric_settings_are_floats(tmp_path):
     assert settings.retain_timeout == 1800.0
     assert settings.retain_poll_interval == 3.0
 
+
+
+def test_observation_scopes_unset_by_default(tmp_path):
+    assert load(tmp_path).observation_scopes is None
+
+
+@pytest.mark.parametrize("keyword", ["combined", "per_tag", "all_combinations", "shared"])
+def test_observation_scope_keywords_are_accepted(tmp_path, keyword):
+    assert load(tmp_path, observation_scopes=keyword).observation_scopes == keyword
+
+
+def test_observation_scope_tag_lists_are_accepted(tmp_path):
+    scopes = [["work", "people"], []]
+    assert load(tmp_path, observation_scopes=scopes).observation_scopes == scopes
+
+
+@pytest.mark.parametrize("value", [
+    "sharde",
+    "",
+    True,
+    3,
+    [],
+    ["work"],
+    [["work", 2024]],
+    {"shared": True},
+])
+def test_invalid_observation_scopes_are_rejected(tmp_path, value):
+    with pytest.raises(SettingsError, match="observation_scopes must be one of"):
+        load(tmp_path, observation_scopes=value)
 
 def test_malformed_value_becomes_a_settings_error(tmp_path):
     broken = MagicMock()

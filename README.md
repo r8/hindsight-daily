@@ -35,10 +35,21 @@ daily_notes_path: /path/to/vault/journals   # required, must be an existing dire
 verbose: false
 retain_timeout: 1800        # optional, max seconds to wait for a note to be ingested
 retain_poll_interval: 3     # optional, initial seconds between ingestion status checks
+observation_scopes: shared  # optional, unset by default
 ```
 
 `bank_id`, `api_url`, and `daily_notes_path` are required and validated when a command starts;
 anything missing is reported as a plain error naming the config file.
+
+`observation_scopes` controls which observations Hindsight consolidates each note's facts into.
+Every section carries the note's frontmatter `tags`, and by default (`combined`) a tag set is its
+own scope, so tagged notes build observations parallel to, and never merged with, the ones from
+untagged notes or from other clients writing to the bank. Set it to `shared` to consolidate
+everything into one untagged scope while each fact keeps its tags. Use that if your notes have
+frontmatter tags, or if the bank is shared with other clients that also use `shared`. It also accepts
+`per_tag`, `all_combinations`, or an explicit list of tag lists such as `[[work], []]`; anything
+else is rejected at startup. Unset, nothing is sent and the server default applies. Notes already
+synced keep their old scope until they are resubmitted, so delete the cache (below) after changing it.
 
 ### Cache
 

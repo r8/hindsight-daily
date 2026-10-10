@@ -149,21 +149,31 @@ def _wait_for_operations(
                     f"{label}: could not read status of operation {op_id}: {_describe(exc)}"
                 ) from exc
             _check_children(operation, label)
-            if operation.status == "failed":
-                raise HindsightSubmitError(
-                    f"{label}: retain operation {op_id} failed: {operation.error_message or 'no error message'}"
-                )
-            if operation.status == "pending":
-                still_pending.append(op_id)
-            elif operation.status == "not_found":
-                # The server purges operations once they complete, so this usually means done.
-                # A restart that dropped an in-flight operation looks identical though, and the
-                # content hash means the note would never be retried — so check the documents
-                # are actually there before believing it.
-                if not confirmed:
-                    _confirm_documents_landed(client, settings, label, expected)
-                    confirmed = True
-                logger.debug("{}: operation {} no longer tracked, documents present", label, op_id)
+            match operation.status:
+                case "pending" | "processing":
+                    still_pending.append(op_id)
+                case "completed":
+                    pass
+                case "not_found":
+                    # The server purges operations once they complete, so this usually means done.
+                    # A restart that dropped an in-flight operation looks identical though, and the
+                    # content hash means the note would never be retried — so check the documents
+                    # are actually there before believing it.
+                    if not confirmed:
+                        _confirm_documents_landed(client, settings, label, expected)
+                        confirmed = True
+                    logger.debug("{}: operation {} no longer tracked, documents present", label, op_id)
+                case "failed" | "cancelled":
+                    raise HindsightSubmitError(
+                        f"{label}: retain operation {op_id} {operation.status}: "
+                        f"{operation.error_message or 'no error message'}"
+                    )
+                case unknown:
+                    # The client validates this against an enum that grows between releases, so a
+                    # status it starts accepting must not slip through as success.
+                    raise HindsightSubmitError(
+                        f"{label}: retain operation {op_id} reported an unknown status: {unknown}"
+                    )
         pending = still_pending
         if not pending:
             return
@@ -183,7 +193,7 @@ def _wait_for_operations(
 def submit(client: _Hindsight, settings: Settings, note: Note) -> None:
     bank_id = settings.bank_id
     label = str(note.date)
-    items = to_retain_items(note)
+    items = to_retain_items(note, observation_scopes=settings.observation_scopes)
     if not items:
         # Nothing to store, and nothing to clean up against — deleting here would wipe the
         # note's documents and report success. Removing an emptied note is the caller's job.
